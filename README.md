@@ -317,7 +317,7 @@ sudo tgwebproxyr bot update
 | --- | --- |
 | Нет сертификата | A/AAAA, 80/443 открыты, нет CDN |
 | health / metrics down | `tgwebproxyr health` · `logs` · `doctor` |
-| Трафик в боте пустой, health OK | Docker: admin был на 127.0.0.1 внутри контейнера — обновите ≥1.6.10 и `secret apply` |
+| Трафик в боте пустой, health OK | Docker ≥1.6.11 (socat admin-proxy); `tgwebproxyr update` |
 | Connecting… / web transport | Desktop ≥ 7.1.1, hostname+secret, HTTPS сайта |
 | Новый пользователь не работает | `secret apply`; в логах mtproxy ` -S count: N` |
 | Не x86_64 | нужен amd64 VPS |

@@ -506,9 +506,8 @@ def text_traffic() -> str:
         lines.append("\nМетрики <code>/metrics</code> недоступны с хоста.")
         if probe in ("ready", "alive"):
             lines.append(
-                "<i>health OK, но :8081 не проброшен — "
-                "обновите стек: <code>tgwebproxyr update</code> "
-                "или <code>secret apply</code>.</i>"
+                "<i>health внутри Docker OK. Обновите ≥1.6.11 "
+                "(admin-proxy) и <code>tgwebproxyr update</code>.</i>"
             )
         else:
             lines.append("<i>Проверьте: <code>tgwebproxyr health</code></i>")

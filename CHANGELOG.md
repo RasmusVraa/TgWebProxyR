@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.11 — 2026-08-22
+
+- Фикс: relay unhealthy — `admin_listen` снова только loopback (tproxy-server так требует)
+- Docker: `admin-proxy` (socat) пробрасывает host `127.0.0.1:8081` → admin внутри netns
+- `tgwebproxyr metrics` — fallback через `docker compose exec`
+
 ## 1.6.10 — 2026-08-22
 
 - Docker: admin relay слушает `0.0.0.0:8081` внутри netns — метрики/health с хоста (`127.0.0.1:8081`) снова работают

@@ -188,11 +188,18 @@ TWPR_human_bytes() {
 TWPR_cmd_metrics() {
   local admin="${TWPR_PORT_ADMIN:-8081}" raw="${1:-}"
   TWPR_load_state
-  local body
-  body="$(curl -fsS --max-time 3 "http://127.0.0.1:${admin}/metrics" 2>/dev/null)" || {
+  local body=""
+  body="$(curl -fsS --max-time 3 "http://127.0.0.1:${admin}/metrics" 2>/dev/null)" || body=""
+  if [[ -z "$body" ]] && TWPR_is_docker 2>/dev/null; then
+    body="$(TWPR_docker_compose exec -T mtproxy \
+      curl -fsS --max-time 3 http://127.0.0.1:8081/metrics 2>/dev/null)" || body=""
+    [[ -z "$body" ]] && body="$(TWPR_docker_compose exec -T relay \
+      curl -fsS --max-time 3 http://127.0.0.1:8081/metrics 2>/dev/null)" || body=""
+  fi
+  if [[ -z "$body" ]]; then
     TWPR_err "Метрики недоступны (нужен работающий tproxy-server на :${admin})"
     return 1
-  }
+  fi
   if [[ "$raw" == "--raw" || "$raw" == "raw" ]]; then
     printf '%s\n' "$body"
     return 0
