@@ -1,33 +1,38 @@
-# Official MTProxy — pin commit as in telegramdesktop/tproxy-server
-FROM debian:bookworm-slim AS build
-ARG MTPROXY_COMMIT=f36d8af769ffaeac36978d38c2c0f6d1104c2137
-ARG MTPROXY_SHA256=919795c416b870670841a21d1930ad97a24c7b84b9eb8c6f9e3de32f2fdf4655
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl build-essential libssl-dev zlib1g-dev \
-  && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL --retry 5 --retry-delay 2 -o /tmp/MTProxy.tar.gz \
-       "https://github.com/TelegramMessenger/MTProxy/archive/${MTPROXY_COMMIT}.tar.gz" \
-  && echo "${MTPROXY_SHA256}  /tmp/MTProxy.tar.gz" | sha256sum -c - \
-  && mkdir -p /build && tar -C /build --strip-components=1 -xzf /tmp/MTProxy.tar.gz \
-  && make -C /build -j"$(nproc)" \
-  && test -x /build/objs/bin/mtproto-proxy
-
+# Fast MTProxy image — binary + telegram config from Release (or docker/bin in CI)
 FROM debian:bookworm-slim
+ARG TWPR_VERSION=1.4.2
+ARG USE_LOCAL_BIN=0
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --home /nonexistent --shell /usr/sbin/nologin mtproxy \
-  && mkdir -p /etc/mtproxy /opt/MTProxy/objs/bin /usr/share/mtproxy-defaults \
-  && curl -fsSL --retry 5 --retry-delay 2 -o /usr/share/mtproxy-defaults/proxy-secret \
-       https://core.telegram.org/getProxySecret \
-  && curl -fsSL --retry 5 --retry-delay 2 -o /usr/share/mtproxy-defaults/proxy-multi.conf \
-       https://core.telegram.org/getProxyConfig \
-  && cp /usr/share/mtproxy-defaults/proxy-secret /etc/mtproxy/proxy-secret \
-  && cp /usr/share/mtproxy-defaults/proxy-multi.conf /etc/mtproxy/proxy-multi.conf \
-  && chown -R mtproxy:mtproxy /etc/mtproxy /usr/share/mtproxy-defaults \
-  && chmod 640 /etc/mtproxy/proxy-secret /etc/mtproxy/proxy-multi.conf \
-               /usr/share/mtproxy-defaults/proxy-secret /usr/share/mtproxy-defaults/proxy-multi.conf
-COPY --from=build /build/objs/bin/mtproto-proxy /opt/MTProxy/objs/bin/mtproto-proxy
+  && mkdir -p /etc/mtproxy /opt/MTProxy/objs/bin /usr/share/mtproxy-defaults /tmp/bin
+COPY docker/bin/ /tmp/bin/
+RUN set -eu; \
+  if [ "$USE_LOCAL_BIN" = "1" ] && [ -f /tmp/bin/mtproto-proxy-linux-amd64 ]; then \
+    cp /tmp/bin/mtproto-proxy-linux-amd64 /opt/MTProxy/objs/bin/mtproto-proxy; \
+  else \
+    echo ">> download mtproto-proxy v${TWPR_VERSION}"; \
+    curl -fsSL --retry 8 --retry-delay 2 --retry-all-errors \
+      -o /opt/MTProxy/objs/bin/mtproto-proxy \
+      "https://github.com/RasmusVraa/TgWebProxyR/releases/download/v${TWPR_VERSION}/mtproto-proxy-linux-amd64"; \
+  fi; \
+  chmod 755 /opt/MTProxy/objs/bin/mtproto-proxy; \
+  if [ -f /tmp/bin/proxy-secret ] && [ -f /tmp/bin/proxy-multi.conf ]; then \
+    cp /tmp/bin/proxy-secret /usr/share/mtproxy-defaults/proxy-secret; \
+    cp /tmp/bin/proxy-multi.conf /usr/share/mtproxy-defaults/proxy-multi.conf; \
+  else \
+    curl -fsSL --retry 8 --retry-delay 2 --retry-all-errors \
+      -o /usr/share/mtproxy-defaults/proxy-secret https://core.telegram.org/getProxySecret; \
+    curl -fsSL --retry 8 --retry-delay 2 --retry-all-errors \
+      -o /usr/share/mtproxy-defaults/proxy-multi.conf https://core.telegram.org/getProxyConfig; \
+  fi; \
+  cp /usr/share/mtproxy-defaults/proxy-secret /etc/mtproxy/proxy-secret; \
+  cp /usr/share/mtproxy-defaults/proxy-multi.conf /etc/mtproxy/proxy-multi.conf; \
+  chown -R mtproxy:mtproxy /etc/mtproxy /usr/share/mtproxy-defaults; \
+  chmod 640 /etc/mtproxy/proxy-secret /etc/mtproxy/proxy-multi.conf \
+           /usr/share/mtproxy-defaults/proxy-secret /usr/share/mtproxy-defaults/proxy-multi.conf; \
+  rm -rf /tmp/bin
 COPY docker/entrypoint-mtproxy.sh /usr/local/bin/entrypoint-mtproxy.sh
-RUN chmod 755 /opt/MTProxy/objs/bin/mtproto-proxy /usr/local/bin/entrypoint-mtproxy.sh
+RUN chmod 755 /usr/local/bin/entrypoint-mtproxy.sh
 EXPOSE 2398 8888
 ENTRYPOINT ["/usr/local/bin/entrypoint-mtproxy.sh"]

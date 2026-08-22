@@ -1,0 +1,2 @@
+# CI кладёт сюда бинарники. На VPS образ качает их с GitHub Releases.
+.gitkeep

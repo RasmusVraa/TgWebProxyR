@@ -131,26 +131,39 @@ TWPR_docker_ensure_docker() {
 TWPR_docker_up() {
   TWPR_docker_wait_prefetch
   local tag="${TWPR_IMAGE_TAG:-latest}"
+  local ver
+  ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo "$tag")"
 
-  TWPR_info "Тяну свежие образы с GHCR…"
+  TWPR_info "Тяну образы с GHCR (параллельно)…"
   set +e
-  TWPR_docker_compose pull --ignore-pull-failures --quiet 2>/dev/null
-  docker pull "${TWPR_CADDY_IMAGE}" >/dev/null 2>&1
-  docker pull "${TWPR_RELAY_IMAGE}:${tag}" >/dev/null 2>&1
-  docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >/dev/null 2>&1
+  docker pull "${TWPR_CADDY_IMAGE}" >/dev/null 2>&1 &
+  docker pull "${TWPR_RELAY_IMAGE}:${tag}" >/dev/null 2>&1 &
+  docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >/dev/null 2>&1 &
+  if [[ "$tag" == "latest" && -n "$ver" ]]; then
+    docker pull "${TWPR_RELAY_IMAGE}:${ver}" >/dev/null 2>&1 &
+    docker pull "${TWPR_MTPROXY_IMAGE}:${ver}" >/dev/null 2>&1 &
+  fi
+  wait
   set -e
 
   if TWPR_docker_images_ready && [[ "${TWPR_DOCKER_BUILD:-0}" != "1" ]]; then
-    TWPR_ok "Образы на месте — поднимаю без сборки"
+    TWPR_ok "Образы GHCR на месте — up без сборки"
     TWPR_docker_compose up -d --no-build --remove-orphans
     return $?
   fi
 
-  TWPR_warn "Готовых образов нет или TWPR_DOCKER_BUILD=1 — собираю локально (дольше)"
-  TWPR_info "Сборка relay + mtproxy параллельно (BuildKit)…"
-  export DOCKER_BUILDKIT=1
-  export COMPOSE_DOCKER_CLI_BUILD=1
-  TWPR_docker_compose build --parallel
+  # Быстрый fallback: docker build только скачивает бинарники с Releases (~десятки секунд)
+  TWPR_warn "GHCR недоступен — быстрая сборка из release-бинарников v${ver}"
+  export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
+  TWPR_IMAGE_TAG="$ver"
+  # подставим версию в .env для build-args
+  if [[ -f "${TWPR_DOCKER_DIR}/.env" ]]; then
+    grep -q '^TWPR_IMAGE_TAG=' "${TWPR_DOCKER_DIR}/.env" \
+      && sed -i "s/^TWPR_IMAGE_TAG=.*/TWPR_IMAGE_TAG=${ver}/" "${TWPR_DOCKER_DIR}/.env" \
+      || echo "TWPR_IMAGE_TAG=${ver}" >>"${TWPR_DOCKER_DIR}/.env"
+  fi
+  TWPR_docker_compose build --parallel \
+    --build-arg "TWPR_VERSION=${ver}"
   TWPR_docker_compose up -d --remove-orphans
 }
 

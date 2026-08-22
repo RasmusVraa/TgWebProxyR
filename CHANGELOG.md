@@ -1,11 +1,17 @@
 # Changelog
 
+## 1.4.2 — 2026-08-22
+
+- Docker: бинарники в Releases — сборка на VPS = только download
+- Параллельный prefetch + fallback без компиляции MTProxy/Go
+
 ## 1.4.1 — 2026-08-22
 
-- Docker: готовые образы GHCR вместо сборки на VPS
-- Параллельный prefetch образов ещё во время вопросов мастера
-- Telegram proxy-secret/config запечены в образ mtproxy
-- CI: `.github/workflows/docker.yml` публикует `tgwebproxyr-relay` / `tgwebproxyr-mtproxy`
+- Docker: готовые образы GHCR + бинарники в GitHub Releases
+- Параллельный prefetch ещё во время вопросов мастера
+- Fallback-сборка за секунды: скачивает бинарники, без компиляции на VPS
+- Telegram proxy-secret/config внутри образа mtproxy
+- CI: `.github/workflows/docker.yml`
 
 ## 1.4.0 — 2026-08-22
 

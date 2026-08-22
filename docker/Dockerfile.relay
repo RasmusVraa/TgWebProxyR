@@ -1,26 +1,24 @@
-# TgWebProxyR relay — runtime only (бинарник кладёт CI / локальный build-stage)
-# Локальная сборка: docker build -f docker/Dockerfile.relay …
-ARG GO_IMAGE=golang:1.22-alpine
-ARG RUNTIME_IMAGE=alpine:3.20
-
-FROM ${GO_IMAGE} AS build
-ARG TPROXY_REF=master
-RUN apk add --no-cache git ca-certificates \
-  && git clone --depth 1 --branch "${TPROXY_REF}" \
-       https://github.com/telegramdesktop/tproxy-server.git /src
-WORKDIR /src
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
-      -o /out/tproxy-server ./cmd/tproxy-server
-
-FROM ${RUNTIME_IMAGE}
+# Fast relay image — binary from GitHub Release (or docker/bin in CI)
+FROM alpine:3.20
+ARG TWPR_VERSION=1.4.2
+ARG USE_LOCAL_BIN=0
 RUN apk add --no-cache ca-certificates curl \
   && adduser -D -H -s /sbin/nologin tproxy \
-  && mkdir -p /etc/tproxy-server /srv/tproxy-site \
+  && mkdir -p /etc/tproxy-server /srv/tproxy-site /tmp/bin \
   && chown -R tproxy:tproxy /etc/tproxy-server
-COPY --from=build /out/tproxy-server /usr/local/bin/tproxy-server
+COPY docker/bin/ /tmp/bin/
+RUN set -eu; \
+  if [ "$USE_LOCAL_BIN" = "1" ] && [ -f /tmp/bin/tproxy-server-linux-amd64 ]; then \
+    cp /tmp/bin/tproxy-server-linux-amd64 /usr/local/bin/tproxy-server; \
+  else \
+    echo ">> download tproxy-server v${TWPR_VERSION}"; \
+    curl -fsSL --retry 8 --retry-delay 2 --retry-all-errors \
+      -o /usr/local/bin/tproxy-server \
+      "https://github.com/RasmusVraa/TgWebProxyR/releases/download/v${TWPR_VERSION}/tproxy-server-linux-amd64"; \
+  fi; \
+  chmod 755 /usr/local/bin/tproxy-server; \
+  rm -rf /tmp/bin
 COPY docker/entrypoint-relay.sh /usr/local/bin/entrypoint-relay.sh
-RUN chmod +x /usr/local/bin/entrypoint-relay.sh /usr/local/bin/tproxy-server
+RUN chmod +x /usr/local/bin/entrypoint-relay.sh
 EXPOSE 8080 8081
 ENTRYPOINT ["/usr/local/bin/entrypoint-relay.sh"]

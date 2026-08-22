@@ -29,6 +29,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.relay
       args:
+        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.2}
         TPROXY_REF: ${TPROXY_REF:-master}
     restart: unless-stopped
     environment:
@@ -60,6 +61,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.mtproxy
+      args:
+        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.2}
     restart: unless-stopped
     environment:
       MTPROXY_SECRET: ${TWPR_SECRET}
