@@ -6,8 +6,8 @@
     </linearGradient>
   </defs>
   <rect width="720" height="160" rx="16" fill="url(#g)"/>
-  <text x="48" y="78" fill="#f3efe6" font-family="Georgia, serif" font-size="42" font-weight="700">TgWebProxyR</text>
-  <text x="48" y="112" fill="#c9ddd9" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18">Telegram WEB Proxy installer</text>
+  <text x="40" y="78" fill="#f3efe6" font-family="Georgia, 'Times New Roman', serif" font-size="40" font-weight="700">TgWebProxyR</text>
+  <text x="40" y="112" fill="#c9ddd9" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18">Telegram WEB Proxy installer</text>
   <circle cx="640" cy="80" r="28" fill="none" stroke="#e4d7c0" stroke-width="3"/>
   <path d="M620 88c10-14 20-20 28-20s18 6 28 20" fill="none" stroke="#e4d7c0" stroke-width="3" stroke-linecap="round"/>
 </svg>

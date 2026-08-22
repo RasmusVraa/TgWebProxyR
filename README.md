@@ -11,7 +11,7 @@
 > Нужен **Telegram Desktop 7.1.1+** (тип прокси **WEB** в Connection settings).
 
 <p align="center">
-  <img alt="TgWebProxyR" src="docs/banner.svg" width="720">
+  <img alt="TgWebProxyR" src="docs/banner.png" width="720">
 </p>
 
 ---
