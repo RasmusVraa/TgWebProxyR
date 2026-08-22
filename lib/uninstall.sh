@@ -11,15 +11,16 @@ TWPR_cmd_uninstall() {
 
   TWPR_ask_yn keep "Сохранить сайт ${TWPR_SITE_DIR}" "Y"
 
-  systemctl stop caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer 2>/dev/null || true
-  systemctl disable caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer 2>/dev/null || true
+  systemctl stop caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
+  systemctl disable caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
 
   rm -f /etc/systemd/system/caddy.service \
         /etc/systemd/system/tproxy-server.service \
         /etc/systemd/system/mtproxy.service \
         /etc/systemd/system/tproxy-firewall.service \
         /etc/systemd/system/refresh-mtproxy-config.service \
-        /etc/systemd/system/refresh-mtproxy-config.timer
+        /etc/systemd/system/refresh-mtproxy-config.timer \
+        /etc/systemd/system/tgwebproxyr-bot.service
   systemctl daemon-reload 2>/dev/null || true
 
   rm -f /usr/local/bin/tproxy-server /usr/local/bin/tgwebproxyr /usr/local/bin/webproxyl

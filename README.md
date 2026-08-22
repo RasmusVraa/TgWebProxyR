@@ -5,16 +5,14 @@
 **TgWebProxyR** — однострочный установщик и CLI-менеджер для нового типа прокси Telegram **WEB**.
 
 Под капотом ставится официальный proof-of-concept движок
-[`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server):
+`[telegramdesktop/tproxy-server](https://github.com/telegramdesktop/tproxy-server)`:
 публичный HTTPS-сайт + WebView-мост, который мультиплексирует MTProxy-потоки
 и отдаёт их локальному официальному MTProxy. Для провайдера это обычный веб-трафик
 на ваш домен.
 
 > Нужен **Telegram Desktop 7.1.1+** (тип прокси **WEB** в Connection settings).
 
-<p align="center">
-  <img alt="TgWebProxyR" src="docs/banner.png" width="720">
-</p>
+
 
 ---
 
@@ -34,7 +32,8 @@
 
 ---
 
-<a id="how"></a>
+
+
 ## Как это работает
 
 ```text
@@ -74,7 +73,8 @@ https://t.me/webproxy?server=proxy.example.com&secret=<32hex>
 
 ---
 
-<a id="install"></a>
+
+
 ## Установка
 
 На чистом **Ubuntu 22.04+ / Debian 12+** (x86_64):
@@ -101,35 +101,39 @@ sudo tgwebproxyr
 
 ---
 
-<a id="quickstart"></a>
+
+
 ## Быстрый старт
 
 1. Создайте DNS **A**-запись: `proxy.example.com → IP_VPS` (без CDN).
 2. Откройте на хостинге/firewall **TCP 80 и 443** (SSH по возможности ограничьте своим IP).
 3. Запустите установку одной командой выше.
 4. В мастере укажите:
-   - домен
-   - email для Let’s Encrypt
-   - secret (можно сгенерировать автоматически)
-   - порты (или оставить 80/443 + локальные по умолчанию)
+  - домен
+  - email для Let’s Encrypt
+  - secret (можно сгенерировать автоматически)
+  - порты (или оставить 80/443 + локальные по умолчанию)
 5. Получите ссылку:
 
 ```bash
 sudo tgwebproxyr link
 ```
 
-6. В Telegram Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
+1. В Telegram Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
 
 ---
 
-<a id="client"></a>
+
+
 ## Подключение в Telegram
 
-| Поле | Значение |
-|------|----------|
-| Тип | **WEB** |
+
+| Поле     | Значение                                                 |
+| -------- | -------------------------------------------------------- |
+| Тип      | **WEB**                                                  |
 | Hostname | `proxy.example.com` (без `https://`, без порта, без `/`) |
-| Secret | 32 hex-символа (опционально с префиксом `dd`) |
+| Secret   | 32 hex-символа (опционально с префиксом `dd`)            |
+
 
 Порт и TLS фиксированы протоколом: всегда **443 / HTTPS**.
 
@@ -141,21 +145,29 @@ sudo tgwebproxyr link
 
 ---
 
-<a id="cli"></a>
+
+
+
 ## CLI
 
-После установки one-liner сам проводит через 8 шагов. Дальше:
+После установки one-liner сам проводит через шаги. Дальше:
 
 ```text
-tgwebproxyr                 дашборд (статус + действия)
-tgwebproxyr setup           полный мастер заново
-tgwebproxyr status
-tgwebproxyr link
-tgwebproxyr logs
-tgwebproxyr update
-tgwebproxyr secret rotate
-tgwebproxyr uninstall
+tgwebproxyr                 дашборд
+tgwebproxyr setup           полный мастер
+tgwebproxyr bot setup       Telegram-бот (меню как у ProxyL)
+tgwebproxyr backup create   бэкап конфигов
+tgwebproxyr status | link | doctor | uninstall
 ```
+
+### Telegram-бот
+
+```bash
+sudo tgwebproxyr bot setup
+```
+
+В боте: статус, прокси, пользователи/secrets, ссылки, трафик, доступность, бэкапы, doctor, настройки.
+Только chat id из `ALLOWED_CHAT_IDS` (`/etc/tgwebproxyr/bot.env`).
 
 Состояние менеджера: `/etc/tgwebproxyr/settings.env`  
 Движок: `/opt/tgwebproxyr/engine/tproxy-server`  
@@ -163,7 +175,8 @@ tgwebproxyr uninstall
 
 ---
 
-<a id="site"></a>
+
+
 ## Публичный сайт
 
 Upstream **намеренно не кладёт** общий starter-сайт: одинаковые шаблоны легко
@@ -171,7 +184,7 @@ Upstream **намеренно не кладёт** общий starter-сайт: �
 «Northwind Field Notes» в `/srv/tproxy-site` только если каталога ещё нет.
 
 Обязательно замените тексты, структуру и визуал на свои. Контракт сайта —
-см. [`PUBLIC_SITE.md`](https://github.com/telegramdesktop/tproxy-server/blob/master/PUBLIC_SITE.md):
+см. `[PUBLIC_SITE.md](https://github.com/telegramdesktop/tproxy-server/blob/master/PUBLIC_SITE.md)`:
 
 - нужен `index.html`
 - CSS/JS только внешние, same-origin
@@ -189,24 +202,28 @@ sudo systemctl restart tproxy-server
 
 ---
 
-<a id="requirements"></a>
+
+
 ## Требования
 
-| | |
-|--|--|
-| ОС | Ubuntu 22.04+ / Debian 12+ |
-| CPU | **x86_64** (ограничение stock MTProxy) |
-| Сеть | публичный IPv4, DNS A на хост, без CDN на первом деплое |
-| Порты | 80, 443 снаружи; 2398 / 8080 / 8081 / 8888 — только localhost |
-| Права | root / passwordless sudo |
-| Клиент | Telegram Desktop **≥ 7.1.1** |
+
+|        |                                                               |
+| ------ | ------------------------------------------------------------- |
+| ОС     | Ubuntu 22.04+ / Debian 12+                                    |
+| CPU    | **x86_64** (ограничение stock MTProxy)                        |
+| Сеть   | публичный IPv4, DNS A на хост, без CDN на первом деплое       |
+| Порты  | 80, 443 снаружи; 2398 / 8080 / 8081 / 8888 — только localhost |
+| Права  | root / passwordless sudo                                      |
+| Клиент | Telegram Desktop **≥ 7.1.1**                                  |
+
 
 Установщик upstream ставит Caddy, nftables-защиту backend-портов, Go-релей,
 дотпиненный билд официального MTProxy и systemd-юниты.
 
 ---
 
-<a id="security"></a>
+
+
 ## Безопасность
 
 - Снаружи слушает только Caddy (80/443).
@@ -218,7 +235,8 @@ sudo systemctl restart tproxy-server
 
 ---
 
-<a id="ops"></a>
+
+
 ## Обновление и удаление
 
 Обновить только Go-релей (конфиги/сайт/Caddy не трогает):
@@ -241,16 +259,19 @@ sudo tgwebproxyr uninstall
 
 ---
 
-<a id="troubleshoot"></a>
+
+
 ## Устранение проблем
 
-| Симптом | Что проверить |
-|---------|----------------|
-| Caddy не выдал сертификат | A/AAAA на этот хост, 80/443 открыты, нет CDN; битый AAAA лучше удалить |
-| `/readyz` = 503 | `systemctl status mtproxy`, доступность `127.0.0.1:2398` |
-| WebView показывает сайт, а не bridge | hostname+secret должны **точно** совпадать с профилем |
-| Клиент «Connecting…» | Desktop ≥ 7.1.1, WebView может открыть `https://hostname`, смотрите `tgwebproxyr logs` |
-| Архитектура не x86_64 | stock MTProxy так не соберётся — нужен amd64 VPS |
+
+| Симптом                              | Что проверить                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------- |
+| Caddy не выдал сертификат            | A/AAAA на этот хост, 80/443 открыты, нет CDN; битый AAAA лучше удалить                 |
+| `/readyz` = 503                      | `systemctl status mtproxy`, доступность `127.0.0.1:2398`                               |
+| WebView показывает сайт, а не bridge | hostname+secret должны **точно** совпадать с профилем                                  |
+| Клиент «Connecting…»                 | Desktop ≥ 7.1.1, WebView может открыть `https://hostname`, смотрите `tgwebproxyr logs` |
+| Архитектура не x86_64                | stock MTProxy так не соберётся — нужен amd64 VPS                                       |
+
 
 Диагностика без секретов:
 
@@ -263,7 +284,8 @@ curl -fsS http://127.0.0.1:8081/readyz
 
 ---
 
-<a id="thanks"></a>
+
+
 ## Благодарности
 
 - [telegramdesktop/tproxy-server](https://github.com/telegramdesktop/tproxy-server) — протокол и reference-сервер WEB proxy

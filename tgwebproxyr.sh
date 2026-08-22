@@ -24,6 +24,10 @@ source "${TWPR_ROOT}/lib/deploy.sh"
 source "${TWPR_ROOT}/lib/secrets.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/uninstall.sh"
+# shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/bot.sh"
+# shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/backup.sh"
 
 TWPR_usage() {
   cat <<EOF
@@ -38,6 +42,8 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr doctor       починить / дождаться ready
   tgwebproxyr reinstall    переустановка
   tgwebproxyr secret ...   show | rotate | add
+  tgwebproxyr bot ...      setup|status|start|stop|restart|logs
+  tgwebproxyr backup ...   create|list|restore <name>
   tgwebproxyr uninstall    удалить
   tgwebproxyr help
 
@@ -80,7 +86,9 @@ TWPR_dashboard() {
     echo -e "  ${C_BOLD}5${C_RESET})  Сменить / заново установить"
     echo -e "  ${C_BOLD}6${C_RESET})  Ротация secret"
     echo -e "  ${C_BOLD}7${C_RESET})  Добавить ещё один secret"
-    echo -e "  ${C_BOLD}8${C_RESET})  Удалить всё"
+    echo -e "  ${C_BOLD}8${C_RESET})  Telegram-бот"
+    echo -e "  ${C_BOLD}9${C_RESET})  Бэкапы"
+    echo -e "  ${C_BOLD}10${C_RESET}) Удалить всё"
     echo -e "  ${C_BOLD}0${C_RESET})  Выход"
     echo ""
 
@@ -94,7 +102,16 @@ TWPR_dashboard() {
       5) TWPR_cmd_setup; TWPR_pause ;;
       6) TWPR_cmd_secret_rotate; TWPR_pause ;;
       7) TWPR_cmd_secret_add; TWPR_pause ;;
-      8) TWPR_cmd_uninstall; TWPR_pause ;;
+      8) TWPR_bot_setup; TWPR_pause ;;
+      9)
+        TWPR_backup_list
+        echo ""
+        local bchoice=""
+        TWPR_ask_yn bchoice "Создать новый бэкап" "Y"
+        [[ "$bchoice" == "yes" ]] && TWPR_backup_create
+        TWPR_pause
+        ;;
+      10) TWPR_cmd_uninstall; TWPR_pause ;;
       0|q|Q) exit 0 ;;
       *) TWPR_warn "Неизвестный пункт"; sleep 1 ;;
     esac
@@ -145,6 +162,12 @@ main() {
         add) TWPR_cmd_secret_add ;;
         *) TWPR_err "secret: show|rotate|add"; exit 2 ;;
       esac
+      ;;
+    bot)
+      TWPR_cmd_bot "$@"
+      ;;
+    backup|backups)
+      TWPR_cmd_backup "$@"
       ;;
     uninstall|remove)
       TWPR_cmd_uninstall "$@"

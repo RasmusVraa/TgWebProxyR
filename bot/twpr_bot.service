@@ -1,0 +1,18 @@
+[Unit]
+Description=TgWebProxyR Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tgwebproxyr/bot
+Environment=TWPR_STATE_DIR=/etc/tgwebproxyr
+Environment=TWPR_BACKUP_DIR=/opt/tgwebproxyr/backups
+ExecStart=/usr/bin/python3 /opt/tgwebproxyr/bot/twpr_bot.py
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

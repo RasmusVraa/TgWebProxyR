@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — 2026-08-22
+
+- Telegram-бот с inline-меню (статус, прокси, пользователи, ссылки, трафик, доступность, бэкапы, doctor)
+- CLI: `tgwebproxyr bot setup|start|stop|restart|logs`
+- CLI: `tgwebproxyr backup create|list|restore`
+
 ## 1.2.3 — 2026-08-22
 
 - Фикс mtproxy `203/EXEC`: слишком жёсткий umask ломал права `/opt/MTProxy`
