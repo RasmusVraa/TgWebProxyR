@@ -46,6 +46,20 @@ TWPR_docker_ensure_env() {
 
 TWPR_docker_write_env() {
   local envf="${TWPR_DOCKER_DIR}/.env"
+  # не затирать NAT из уже существующего .env, если в settings пусто
+  if [[ -f "$envf" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck disable=SC1091
+    source "$envf" 2>/dev/null || true
+    set +a
+    [[ -z "${TWPR_MTPROXY_NAT_INFO:-}" && -n "${MTPROXY_NAT_INFO:-}" ]] \
+      && TWPR_MTPROXY_NAT_INFO="$MTPROXY_NAT_INFO"
+    [[ -z "${TWPR_PUBLIC_IP:-}" && -n "${MTPROXY_EXTERNAL_IP:-}" ]] \
+      && TWPR_PUBLIC_IP="$MTPROXY_EXTERNAL_IP"
+    [[ -z "${TWPR_MTPROXY_INTERNAL_IP:-}" && -n "${MTPROXY_INTERNAL_IP:-}" ]] \
+      && TWPR_MTPROXY_INTERNAL_IP="$MTPROXY_INTERNAL_IP"
+  fi
   umask 077
   cat >"$envf" <<EOF
 TWPR_HOSTNAME=${TWPR_HOSTNAME}

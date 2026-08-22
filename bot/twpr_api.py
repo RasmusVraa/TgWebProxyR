@@ -8,9 +8,10 @@ Endpoints:
   GET  /v1/health
   GET  /v1/status
   GET  /v1/users
-  POST /v1/users            {"name":"alice"}  → создаёт пользователя
+  POST /v1/users            {"name":"alice","quota_bytes":10737418240}  или "quota":"10G"
   GET  /v1/users/{name}
-  PATCH /v1/users/{name}    {"name":"bob"}    → переименовать
+  PATCH /v1/users/{name}    {"name":"bob"} | {"quota_bytes":…} | {"quota":"10G"}
+                            | {"enabled":true|false} | {"reset_usage":true}
   DELETE /v1/users/{name}
   GET  /v1/users/{name}/link
   GET  /v1/traffic
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import urllib.parse
@@ -29,6 +31,7 @@ from typing import Any
 
 STATE_DIR = Path(os.environ.get("TWPR_STATE_DIR", "/etc/tgwebproxyr"))
 REGISTRY = STATE_DIR / "profiles.json"
+USAGE_FILE = STATE_DIR / "usage.json"
 SETTINGS = STATE_DIR / "settings.env"
 API_ENV = STATE_DIR / "api.env"
 DOCKER_DIR = Path("/opt/tgwebproxyr/docker")
@@ -62,6 +65,32 @@ def secret_default() -> str:
     return CFG.get("TWPR_SECRET", "")
 
 
+def admin_port() -> str:
+    return CFG.get("TWPR_PORT_ADMIN") or "8081"
+
+
+def mtproxy_port() -> str:
+    return CFG.get("TWPR_PORT_MTPROXY") or "2398"
+
+
+def parse_bytes(raw: Any) -> int | None:
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return max(0, int(raw))
+    s = str(raw).strip().lower().replace(" ", "")
+    if s in ("", "unlimited", "inf", "none", "off", "-1"):
+        return 0
+    m = re.fullmatch(r"(\d+)([kmgt])i?b?", s)
+    if m:
+        n = int(m.group(1))
+        mul = {"k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}[m.group(2)]
+        return n * mul
+    if s.isdigit():
+        return int(s)
+    return None
+
+
 def load_profiles() -> list[dict[str, Any]]:
     if not REGISTRY.is_file():
         return []
@@ -72,12 +101,29 @@ def load_profiles() -> list[dict[str, Any]]:
         return []
 
 
+def load_usage() -> dict[str, Any]:
+    if not USAGE_FILE.is_file():
+        return {}
+    try:
+        return dict(json.loads(USAGE_FILE.read_text(encoding="utf-8")).get("users") or {})
+    except Exception:
+        return {}
+
+
 def ensure_default(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sec = secret_default()
+    old = next((p for p in profiles if p.get("name") == "default"), {})
     rest = [p for p in profiles if p.get("name") != "default"]
     if sec:
         return [
-            {"name": "default", "secret": sec, "backend": "127.0.0.1:2398", "carrier_mode": "https"}
+            {
+                "name": "default",
+                "secret": sec,
+                "backend": f"127.0.0.1:{mtproxy_port()}",
+                "carrier_mode": "https",
+                "enabled": old.get("enabled", True) if isinstance(old, dict) else True,
+                "quota_bytes": int(old.get("quota_bytes") or 0) if isinstance(old, dict) else 0,
+            }
         ] + rest
     return rest
 
@@ -89,8 +135,28 @@ def save_profiles(profiles: list[dict[str, Any]]) -> None:
     tmp.write_text(json.dumps({"profiles": profiles}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.chmod(tmp, 0o600)
     tmp.replace(REGISTRY)
-    # применить к движку
     subprocess.run([CLI, "secret", "apply"], capture_output=True, text=True, timeout=90)
+
+
+def user_public(p: dict[str, Any]) -> dict[str, Any]:
+    name = str(p.get("name", ""))
+    sec = str(p.get("secret", ""))
+    quota = int(p.get("quota_bytes") or 0)
+    used = int((load_usage().get(name) or {}).get("bytes_total") or 0)
+    enabled = p.get("enabled", True) is not False
+    remaining = None if quota <= 0 else max(0, quota - used)
+    return {
+        "name": name,
+        "secret": sec,
+        "enabled": enabled,
+        "quota_bytes": quota,
+        "used_bytes": used,
+        "remaining_bytes": remaining,
+        "link_tg": tg_link(hostname(), sec),
+        "link_https": web_link(hostname(), sec),
+        "tg": tg_link(hostname(), sec),
+        "https": web_link(hostname(), sec),
+    }
 
 
 def tg_link(host: str, secret: str) -> str:
@@ -103,10 +169,39 @@ def web_link(host: str, secret: str) -> str:
 
 def fetch_metrics() -> str:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8081/metrics", timeout=2.5) as r:
+        with urllib.request.urlopen(f"http://127.0.0.1:{admin_port()}/metrics", timeout=2.5) as r:
             return r.read().decode("utf-8", errors="replace")
     except Exception:
-        return ""
+        pass
+    # Docker fallback
+    if (DOCKER_DIR / ".env").is_file():
+        try:
+            r = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(DOCKER_DIR / "docker-compose.yml"),
+                    "--env-file",
+                    str(DOCKER_DIR / ".env"),
+                    "exec",
+                    "-T",
+                    "mtproxy",
+                    "curl",
+                    "-fsS",
+                    "--max-time",
+                    "3",
+                    "http://127.0.0.1:8081/metrics",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if r.returncode == 0 and r.stdout:
+                return r.stdout
+        except Exception:
+            pass
+    return ""
 
 
 def _parse_prom_line(ln: str) -> tuple[str, dict[str, str], float] | None:
@@ -136,7 +231,6 @@ def _parse_prom_line(ln: str) -> tuple[str, dict[str, str], float] | None:
 
 
 def parse_traffic(metrics: str) -> dict[str, Any]:
-    """Глобальные + per-profile счётчики из /metrics."""
     out: dict[str, Any] = {
         "raw_lines": 0,
         "sessions": None,
@@ -174,12 +268,47 @@ def parse_traffic(metrics: str) -> dict[str, Any]:
             out["bytes_down"] = num
         if "byte" in low:
             out["bytes"][name] = num
-    out["users"] = sorted(per.values(), key=lambda u: str(u["name"]))
+    usage = load_usage()
+    profiles = {str(p.get("name")): p for p in load_profiles()}
+    names = list(profiles.keys())
+    for n in per:
+        if n not in names:
+            names.append(n)
+    users_out = []
+    for n in names:
+        p = profiles.get(n) or {"name": n}
+        slot = per.get(n) or {}
+        quota = int(p.get("quota_bytes") or 0)
+        used = int((usage.get(n) or {}).get("bytes_total") or 0)
+        users_out.append(
+            {
+                "name": n,
+                "sessions": slot.get("sessions", 0),
+                "bytes_up": slot.get("bytes_up", 0),
+                "bytes_down": slot.get("bytes_down", 0),
+                "enabled": p.get("enabled", True) is not False,
+                "quota_bytes": quota,
+                "used_bytes": used,
+                "remaining_bytes": None if quota <= 0 else max(0, quota - used),
+            }
+        )
+    out["users"] = users_out
     return out
 
 
+def cli(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [CLI, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, "TWPR_YES": "1"},
+        input="\n",
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "TgWebProxyR-API/1.0"
+    server_version = "TgWebProxyR-API/1.1"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"api: {self.address_string()} {fmt % args}", flush=True)
@@ -226,31 +355,21 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/v1/status":
+            mode = CFG.get("TWPR_DEPLOY_MODE") or (
+                "docker" if (DOCKER_DIR / ".env").is_file() else "native"
+            )
             self._json(
                 200,
-                {
-                    "hostname": hostname(),
-                    "users": len(load_profiles()),
-                    "mode": "docker" if (DOCKER_DIR / ".env").is_file() else "native",
-                },
+                {"hostname": hostname(), "users": len(load_profiles()), "mode": mode},
             )
             return
 
         if path == "/v1/users":
-            users = []
-            for p in load_profiles():
-                users.append(
-                    {
-                        "name": p.get("name"),
-                        "secret": p.get("secret"),
-                        "link_tg": tg_link(hostname(), str(p.get("secret", ""))),
-                        "link_https": web_link(hostname(), str(p.get("secret", ""))),
-                    }
-                )
-            self._json(200, {"users": users})
+            self._json(200, {"users": [user_public(p) for p in load_profiles()]})
             return
 
         if path == "/v1/traffic":
+            cli("quota", "check", timeout=90)
             m = fetch_metrics()
             self._json(200, {"hostname": hostname(), "metrics": parse_traffic(m), "snippet": m[-2000:]})
             return
@@ -263,33 +382,23 @@ class Handler(BaseHTTPRequestHandler):
                 if not p:
                     self._json(404, {"error": "not found"})
                     return
-                sec = str(p.get("secret", ""))
+                pub = user_public(p)
                 self._json(
                     200,
                     {
                         "name": name,
-                        "secret": sec,
+                        "secret": pub["secret"],
                         "hostname": hostname(),
-                        "tg": tg_link(hostname(), sec),
-                        "https": web_link(hostname(), sec),
+                        "tg": pub["tg"],
+                        "https": pub["https"],
                     },
                 )
                 return
-            name = rest
-            p = next((x for x in load_profiles() if x.get("name") == name), None)
+            p = next((x for x in load_profiles() if x.get("name") == rest), None)
             if not p:
                 self._json(404, {"error": "not found"})
                 return
-            sec = str(p.get("secret", ""))
-            self._json(
-                200,
-                {
-                    "name": name,
-                    "secret": sec,
-                    "tg": tg_link(hostname(), sec),
-                    "https": web_link(hostname(), sec),
-                },
-            )
+            self._json(200, user_public(p))
             return
 
         self._json(404, {"error": "not found"})
@@ -311,30 +420,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(409, {"error": "exists"})
             return
         try:
-            # non-interactive add
-            env = {**os.environ, "TWPR_YES": "1"}
-            r = subprocess.run(
-                [CLI, "secret", "add", name],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                env=env,
-                input="\n",
-            )
+            r = cli("secret", "add", name)
             p = next((x for x in load_profiles() if x.get("name") == name), None)
             if not p:
                 self._json(500, {"error": "create failed", "detail": (r.stderr or r.stdout)[-400:]})
                 return
-            sec = str(p.get("secret", ""))
-            self._json(
-                201,
-                {
-                    "name": name,
-                    "secret": sec,
-                    "tg": tg_link(hostname(), sec),
-                    "https": web_link(hostname(), sec),
-                },
-            )
+            qb = parse_bytes(body.get("quota_bytes", body.get("quota")))
+            if qb is not None:
+                cli("secret", "quota", name, str(qb))
+                p = next((x for x in load_profiles() if x.get("name") == name), p)
+            self._json(201, user_public(p))
         except Exception as e:
             self._json(500, {"error": str(e)})
 
@@ -345,24 +440,46 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith("/v1/users/"):
             self._json(404, {"error": "not found"})
             return
-        old = path[len("/v1/users/") :]
+        name = path[len("/v1/users/") :]
         body = self._read_json()
+        p = next((x for x in load_profiles() if x.get("name") == name), None)
+        if not p:
+            self._json(404, {"error": "not found"})
+            return
+
+        if body.get("reset_usage") is True:
+            cli("secret", "reset-usage", name)
+
+        if "enabled" in body:
+            if body.get("enabled") is False or str(body.get("enabled")).lower() in ("0", "false", "off"):
+                cli("secret", "disable", name)
+            else:
+                cli("secret", "enable", name)
+
+        qb = parse_bytes(body.get("quota_bytes", body.get("quota"))) if (
+            "quota_bytes" in body or "quota" in body
+        ) else None
+        if qb is not None:
+            cli("secret", "quota", name, str(qb))
+
         new = str(body.get("name") or "").strip()
         new = "".join(c for c in new if c.isalnum() or c in "._-")
-        if not new or old == "default":
-            self._json(400, {"error": "invalid"})
+        if new and new != name:
+            if name == "default":
+                self._json(400, {"error": "cannot rename default"})
+                return
+            r = cli("secret", "rename", name, new)
+            if r.returncode != 0:
+                self._json(400, {"error": (r.stderr or r.stdout)[-300:]})
+                return
+            name = new
+
+        cli("quota", "check", timeout=90)
+        p2 = next((x for x in load_profiles() if x.get("name") == name), None)
+        if not p2:
+            self._json(404, {"error": "not found after patch"})
             return
-        r = subprocess.run(
-            [CLI, "secret", "rename", old, new],
-            capture_output=True,
-            text=True,
-            timeout=90,
-            env={**os.environ, "TWPR_YES": "1"},
-        )
-        if r.returncode != 0:
-            self._json(400, {"error": (r.stderr or r.stdout)[-300:]})
-            return
-        self._json(200, {"name": new, "renamed_from": old})
+        self._json(200, user_public(p2))
 
     def do_DELETE(self) -> None:  # noqa: N802
         if not self._auth():
@@ -375,17 +492,8 @@ class Handler(BaseHTTPRequestHandler):
         if name == "default":
             self._json(400, {"error": "cannot delete default"})
             return
-        r = subprocess.run(
-            [CLI, "secret", "remove", name],
-            capture_output=True,
-            text=True,
-            timeout=90,
-            env={**os.environ, "TWPR_YES": "1"},
-            input="y\n",
-        )
-        # remove may ask yn — with TWPR_YES should skip; ensure secrets.sh respects TWPR_YES
+        r = cli("secret", "remove", name)
         if name in {p.get("name") for p in load_profiles()}:
-            # force
             profiles = [p for p in load_profiles() if p.get("name") != name]
             save_profiles(profiles)
         self._json(200, {"deleted": name, "cli": (r.stdout or "")[-200:]})

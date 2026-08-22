@@ -38,15 +38,17 @@ TWPR_load_state() {
     source "${TWPR_STATE_DIR}/settings.env"
     set -e
   fi
-  # быстрый автодетект Docker — только по файлам, без docker compose
-  if [[ "${TWPR_DEPLOY_MODE:-}" != "docker" ]] \
-     && [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
+  # автодетект Docker только если режим ещё не задан явно
+  if [[ -z "${TWPR_DEPLOY_MODE:-}" ]] && [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
     TWPR_DEPLOY_MODE="docker"
   fi
 }
 
 TWPR_is_docker() {
-  [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]] && return 0
+  case "${TWPR_DEPLOY_MODE:-}" in
+    docker) return 0 ;;
+    native|systemd) return 1 ;;
+  esac
   [[ -f "${TWPR_ROOT}/docker/.env" ]] && return 0
   return 1
 }
@@ -74,6 +76,9 @@ TWPR_DEPLOY_MODE='${TWPR_DEPLOY_MODE:-native}'
 TWPR_TLS_MODE='${TWPR_TLS_MODE:-acme}'
 TWPR_TLS_CERT='${TWPR_TLS_CERT:-}'
 TWPR_TLS_KEY='${TWPR_TLS_KEY:-}'
+TWPR_MTPROXY_NAT_INFO='${TWPR_MTPROXY_NAT_INFO:-}'
+TWPR_PUBLIC_IP='${TWPR_PUBLIC_IP:-}'
+TWPR_MTPROXY_INTERNAL_IP='${TWPR_MTPROXY_INTERNAL_IP:-}'
 EOF
   chmod 600 "${TWPR_STATE_DIR}/settings.env"
   umask "$old_umask"

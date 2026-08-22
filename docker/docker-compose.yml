@@ -95,26 +95,6 @@ services:
       relay:
         condition: service_healthy
 
-  bot:
-    profiles: ["bot"]
-    image: python:3.12-alpine
-    pull_policy: missing
-    restart: unless-stopped
-    working_dir: /app
-    command: ["python", "-u", "twpr_bot.py"]
-    environment:
-      BOT_TOKEN: ${BOT_TOKEN:-}
-      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS:-}
-      TWPR_DOCKER: "1"
-      TWPR_HOSTNAME: ${TWPR_HOSTNAME}
-      TWPR_SECRET: ${TWPR_SECRET}
-    volumes:
-      - ../bot:/app:ro
-    network_mode: "service:mtproxy"
-    depends_on:
-      relay:
-        condition: service_healthy
-
 networks:
   twpr:
     driver: bridge

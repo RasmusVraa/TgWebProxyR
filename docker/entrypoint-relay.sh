@@ -73,15 +73,30 @@ esac
 if [ -s "$HOST_PROFILES" ] && command -v jq >/dev/null 2>&1; then
   echo ">> profiles from host registry"
   jq --arg s "$SECRET_HEX" --arg b "$BACKEND" '
-    .profiles = ((.profiles // []) | map(select(.name != "default")))
-    | .profiles = [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}] + (
-        [.profiles[] | {
-          name: .name,
-          secret: ((.secret // "") | ascii_downcase | sub("^dd";"")),
-          backend: $b,
-          carrier_mode: (.carrier_mode // "https")
-        } | select((.secret | length) == 32)]
-      )
+    (.profiles // []) as $all
+    | (($all | map(select(.name == "default"))[0].enabled // true) != false) as $def_on
+    | ($all
+        | map(select(.name != "default")
+              | select((.enabled // true) != false)
+              | {
+                  name: .name,
+                  secret: ((.secret // "") | ascii_downcase | sub("^dd";"")),
+                  backend: $b,
+                  carrier_mode: (.carrier_mode // "https")
+                }
+              | select((.secret | length) == 32))
+      ) as $rest
+    | {
+        profiles: (
+          (if $def_on then
+            [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}]
+          else [] end)
+          + $rest
+        )
+      }
+    | if (.profiles|length) == 0 then
+        {profiles:[{name:"default", secret:$s, backend:$b, carrier_mode:"https"}]}
+      else . end
   ' "$HOST_PROFILES" >"${CFG_DIR}/profiles.json"
   echo ">> profiles: $(jq '.profiles | length' "${CFG_DIR}/profiles.json")"
 else

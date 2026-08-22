@@ -3,7 +3,7 @@
 Установщик и CLI для Telegram **WEB**-прокси на базе [`tproxy-server`](https://github.com/telegramdesktop/tproxy-server).
 
 > Скрипт навайбкоден — используйте с осторожностью.  
-> Актуальная версия: **[v1.6.12](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.12)** · [README](https://github.com/RasmusVraa/TgWebProxyR#readme)
+> Актуальная версия: **[v1.6.13](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.13)** · [README](https://github.com/RasmusVraa/TgWebProxyR#readme)
 
 ## Страницы
 
@@ -11,7 +11,7 @@
 | --- | --- |
 | [[Installation]] | one-liner, флаги, TLS, обновление |
 | [[Docker-vs-Native]] | Compose или systemd |
-| [[Users]] | несколько secret / профили |
+| [[Users]] | несколько secret / лимиты трафика |
 | [[CLI]] | меню и команды |
 | [[Bot]] | Telegram-бот |
 | [[API]] | Shop REST API |
@@ -31,13 +31,14 @@ sudo tgwebproxyr link
 
 В Desktop ≥ 7.1.1: **Settings → Advanced → Connection type → Add proxy → WEB**.
 
-## Что умеет (v1.6.12)
+## Что умеет (v1.6.13)
 
 - Docker или Native установка  
 - Несколько пользователей на одном домене (`secret add` / бот / API)  
-- Трафик **по каждому пользователю** (бот, `metrics`, API)  
+- **Лимиты трафика** на пользователя + soft-disable при исчерпании  
+- Трафик по каждому пользователю (бот, `metrics`, API)  
 - MTProxy сам ставит `--nat-info` за Docker/NAT  
-- Подхват уже выпущенного TLS (Let's Encrypt / файлы)  
+- Подхват уже выпущенного TLS  
 - `tgwebproxyr update` обновляет и менеджер, и стек  
 - Telegram-бот и Shop API на `127.0.0.1:8787`  
 - Автобэкап + отправка архива админу  

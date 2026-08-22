@@ -20,13 +20,22 @@ TWPR_ensure_default_profile() {
     tmp="$(mktemp)"
     if [[ -f "$TWPR_REGISTRY" ]]; then
       jq --arg s "$secret" --arg b "$backend" '
-        .profiles = ((.profiles // []) | map(select(.name != "default")))
-        | .profiles = [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}] + .profiles
+        (.profiles // []) as $all
+        | ($all | map(select(.name == "default"))[0] // {}) as $old
+        | ($all | map(select(.name != "default"))) as $rest
+        | .profiles = [{
+            name: "default",
+            secret: $s,
+            backend: $b,
+            carrier_mode: "https",
+            enabled: ($old.enabled // true),
+            quota_bytes: (($old.quota_bytes // 0) | tonumber)
+          }] + $rest
       ' "$TWPR_REGISTRY" >"$tmp" 2>/dev/null \
-        || printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https"}]}\n' \
+        || printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https","enabled":true,"quota_bytes":0}]}\n' \
              "$secret" "$backend" >"$tmp"
     else
-      printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https"}]}\n' \
+      printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https","enabled":true,"quota_bytes":0}]}\n' \
         "$secret" "$backend" >"$tmp"
     fi
     install -m 0600 "$tmp" "$TWPR_REGISTRY"
@@ -34,7 +43,7 @@ TWPR_ensure_default_profile() {
   else
     umask 077
     cat >"$TWPR_REGISTRY" <<EOF
-{"profiles":[{"name":"default","secret":"${secret}","backend":"${backend}","carrier_mode":"https"}]}
+{"profiles":[{"name":"default","secret":"${secret}","backend":"${backend}","carrier_mode":"https","enabled":true,"quota_bytes":0}]}
 EOF
     chmod 600 "$TWPR_REGISTRY"
   fi
@@ -43,6 +52,7 @@ EOF
 # Применить реестр к движку:
 # - Docker: все секреты в mtproxy (-S…) + profiles в relay
 # - Native: profiles.json + wrapper mtproxy со всеми -S
+# В engine только name/secret/backend/carrier_mode и только enabled!=false
 TWPR_profiles_apply_engine() {
   TWPR_ensure_default_profile
   local backend="127.0.0.1:${TWPR_PORT_MTPROXY:-2398}"
@@ -66,7 +76,13 @@ TWPR_profiles_apply_engine() {
     local tmp
     tmp="$(mktemp)"
     jq --arg b "$backend" '
-      .profiles |= map(.backend = $b | .carrier_mode = (.carrier_mode // "https"))
+      .profiles |= map(select((.enabled // true) != false))
+      | .profiles |= map({
+          name: .name,
+          secret: .secret,
+          backend: $b,
+          carrier_mode: (.carrier_mode // "https")
+        })
     ' "$TWPR_REGISTRY" >"$tmp"
     install -m 0400 "$tmp" "$TWPR_ENGINE_PROFILES"
     rm -f "$tmp"
@@ -91,6 +107,7 @@ TWPR_mtproxy_write_native_wrapper() {
 set -euo pipefail
 # shellcheck disable=SC1091
 [[ -f /etc/mtproxy/mtproxy.env ]] && source /etc/mtproxy/mtproxy.env
+[[ -f /etc/tgwebproxyr/settings.env ]] && source /etc/tgwebproxyr/settings.env
 REGISTRY="${TWPR_REGISTRY:-/etc/tgwebproxyr/profiles.json}"
 BIN="/opt/MTProxy/objs/bin/mtproto-proxy"
 WORKERS="${MTPROXY_WORKERS:-1}"
@@ -105,7 +122,7 @@ norm() {
   [[ "$s" =~ ^[0-9a-f]{32}$ ]] && echo "$s"
 }
 
-args=(-u mtproxy -p 8888 -H 2398)
+args=(-u mtproxy -p 8888 -H "${MTPROXY_PORT:-${TWPR_PORT_MTPROXY:-2398}}")
 declare -A seen=()
 if [[ -f "$REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
   while IFS= read -r raw; do
@@ -114,7 +131,7 @@ if [[ -f "$REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
     [[ -n "${seen[$ns]:-}" ]] && continue
     seen[$ns]=1
     args+=(-S "$ns")
-  done < <(jq -r '.profiles[]?.secret // empty' "$REGISTRY")
+  done < <(jq -r '.profiles[]? | select((.enabled // true) != false) | .secret // empty' "$REGISTRY")
 fi
 if [[ ${#seen[@]} -eq 0 ]] && [[ -n "${MTPROXY_SECRET:-}" ]]; then
   ns="$(norm "$MTPROXY_SECRET" || true)"
@@ -194,8 +211,10 @@ TWPR_cmd_secret_list() {
   echo -e "  ${C_BOLD}Профили${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
   if [[ -f "$TWPR_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
-    jq -r '.profiles[]? | "  \(.name)\t…\(.secret[-4:])\t\(.backend // "-")"' \
-      "$TWPR_REGISTRY" 2>/dev/null || true
+    jq -r '
+      .profiles[]? |
+      "  \(.name)\t…\(.secret[-4:])\t\(if (.enabled // true) == false then "OFF" else "ON" end)\tquota=\(.quota_bytes // 0)"
+    ' "$TWPR_REGISTRY" 2>/dev/null || true
   elif [[ -n "${TWPR_SECRET:-}" ]]; then
     TWPR_ok "default  …${TWPR_SECRET: -4}"
   else
@@ -303,7 +322,7 @@ TWPR_cmd_secret_add() {
   local tmp
   tmp="$(mktemp)"
   jq --arg n "$name" --arg s "$secret" --arg b "$backend" '
-    .profiles += [{name:$n, secret:$s, backend:$b, carrier_mode:"https"}]
+    .profiles += [{name:$n, secret:$s, backend:$b, carrier_mode:"https", enabled:true, quota_bytes:0}]
   ' "$TWPR_REGISTRY" >"$tmp"
   install -m 0600 "$tmp" "$TWPR_REGISTRY"
   rm -f "$tmp"
@@ -366,4 +385,80 @@ TWPR_cmd_secret_apply() {
   if TWPR_is_docker; then TWPR_docker_ensure_env 2>/dev/null || true; fi
   TWPR_profiles_apply_engine
   TWPR_ok "Профили применены к движку"
+}
+
+TWPR_cmd_secret_quota() {
+  TWPR_require_root
+  TWPR_load_state
+  local name="${1:-}" raw="${2:-}" bytes
+  [[ -n "$name" ]] || TWPR_ask name "Имя пользователя"
+  [[ -n "$raw" ]] || TWPR_ask raw "Лимит (10G / 500M / unlimited)"
+  command -v jq >/dev/null 2>&1 || { TWPR_err "Нужен jq"; return 1; }
+  # shellcheck disable=SC1091
+  source "${TWPR_ROOT}/lib/quota.sh"
+  bytes="$(TWPR_parse_bytes "$raw")" || { TWPR_err "непонятный размер: ${raw}"; return 1; }
+  TWPR_ensure_default_profile
+  local tmp
+  tmp="$(mktemp)"
+  jq --arg n "$name" --argjson q "$bytes" '
+    if ([.profiles[]|select(.name==$n)]|length)==0 then error("missing") else . end
+    | .profiles |= map(if .name == $n then .quota_bytes = $q else . end)
+  ' "$TWPR_REGISTRY" >"$tmp" 2>/dev/null || { rm -f "$tmp"; TWPR_err "нет профиля ${name}"; return 1; }
+  install -m 0600 "$tmp" "$TWPR_REGISTRY"
+  rm -f "$tmp"
+  TWPR_quota_install_timer 2>/dev/null || true
+  TWPR_quota_enforce 2>/dev/null || true
+  if [[ "$bytes" -eq 0 ]]; then
+    TWPR_ok "${name}: лимит снят (unlimited)"
+  else
+    TWPR_ok "${name}: лимит ${bytes} байт (${raw})"
+  fi
+}
+
+TWPR_cmd_secret_enable() {
+  TWPR_require_root
+  TWPR_load_state
+  local name="${1:-}" on="${2:-1}"
+  [[ -n "$name" ]] || TWPR_ask name "Имя пользователя"
+  command -v jq >/dev/null 2>&1 || { TWPR_err "Нужен jq"; return 1; }
+  TWPR_ensure_default_profile
+  local tmp flag=true
+  [[ "$on" == "0" || "$on" == "false" || "$on" == "off" || "$on" == "disable" ]] && flag=false
+  tmp="$(mktemp)"
+  if [[ "$flag" == "true" ]]; then
+    jq --arg n "$name" --argjson e true '
+      if ([.profiles[]|select(.name==$n)]|length)==0 then error("missing") else . end
+      | .profiles |= map(if .name == $n then .enabled = $e else . end)
+    ' "$TWPR_REGISTRY" >"$tmp" 2>/dev/null || { rm -f "$tmp"; TWPR_err "нет профиля ${name}"; return 1; }
+  else
+    jq --arg n "$name" --argjson e false '
+      if ([.profiles[]|select(.name==$n)]|length)==0 then error("missing") else . end
+      | .profiles |= map(if .name == $n then .enabled = $e else . end)
+    ' "$TWPR_REGISTRY" >"$tmp" 2>/dev/null || { rm -f "$tmp"; TWPR_err "нет профиля ${name}"; return 1; }
+  fi
+  install -m 0600 "$tmp" "$TWPR_REGISTRY"
+  rm -f "$tmp"
+  TWPR_profiles_apply_engine
+  if [[ "$flag" == "true" ]]; then TWPR_ok "${name}: включён"; else TWPR_ok "${name}: отключён"; fi
+}
+
+TWPR_cmd_secret_reset_usage() {
+  TWPR_require_root
+  TWPR_load_state
+  local name="${1:-}"
+  [[ -n "$name" ]] || TWPR_ask name "Имя пользователя (или all)"
+  # shellcheck disable=SC1091
+  source "${TWPR_ROOT}/lib/quota.sh"
+  TWPR_quota_usage_init
+  local tmp
+  tmp="$(mktemp)"
+  if [[ "$name" == "all" ]]; then
+    echo '{"users":{}}' >"$tmp"
+  else
+    jq --arg n "$name" 'del(.users[$n])' "$TWPR_USAGE_FILE" >"$tmp" 2>/dev/null \
+      || echo '{"users":{}}' >"$tmp"
+  fi
+  install -m 0600 "$tmp" "$TWPR_USAGE_FILE"
+  rm -f "$tmp"
+  TWPR_ok "счётчик usage сброшен: ${name}"
 }

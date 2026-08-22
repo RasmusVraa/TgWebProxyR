@@ -160,6 +160,17 @@ TWPR_apply_ports() {
     sed -i -E "s/-H[[:space:]]+[0-9]+/-H ${mtproxy}/g" /etc/systemd/system/mtproxy.service
     TWPR_ok "mtproxy.service -H ${mtproxy}"
   fi
+  # wrapper дропает ExecStart — пересобрать с правильным портом
+  if declare -F TWPR_mtproxy_write_native_wrapper >/dev/null 2>&1; then
+    TWPR_mtproxy_write_native_wrapper
+  fi
+  if [[ -f /etc/mtproxy/mtproxy.env ]]; then
+    if grep -q '^MTPROXY_PORT=' /etc/mtproxy/mtproxy.env 2>/dev/null; then
+      sed -i "s/^MTPROXY_PORT=.*/MTPROXY_PORT=${mtproxy}/" /etc/mtproxy/mtproxy.env
+    else
+      echo "MTPROXY_PORT=${mtproxy}" >>/etc/mtproxy/mtproxy.env
+    fi
+  fi
 
   # --- nftables ---
   nft delete table inet tproxy_backend 2>/dev/null || true

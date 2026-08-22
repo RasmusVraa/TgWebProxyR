@@ -48,6 +48,10 @@ tgwebproxyr secret add [name]
 tgwebproxyr secret rename <old> <new>
 tgwebproxyr secret remove <name>
 tgwebproxyr secret apply      # relay + все -S у mtproxy
+tgwebproxyr secret quota <name> <10G|unlimited>
+tgwebproxyr secret enable|disable <name>
+tgwebproxyr secret reset-usage <name|all>
+tgwebproxyr quota check|status|timer
 ```
 
 Подробнее: [[Users]].
@@ -73,7 +77,8 @@ tgwebproxyr help
 | --- | --- |
 | `/opt/tgwebproxyr` | код менеджера |
 | `/etc/tgwebproxyr/settings.env` | hostname, режим, порты |
-| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets |
+| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets / quota |
+| `/etc/tgwebproxyr/usage.json` | учтённый трафик для квот |
 | `/etc/tgwebproxyr/bot.env` | бот |
 | `/etc/tgwebproxyr/api.env` | Shop API token |
 | `/etc/tgwebproxyr/autobackup.env` | расписание автобэкапа |

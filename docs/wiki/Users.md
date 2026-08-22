@@ -27,11 +27,27 @@ sudo tgwebproxyr secret rename alice bob
 sudo tgwebproxyr secret rotate bob
 sudo tgwebproxyr secret remove bob
 sudo tgwebproxyr secret apply
+sudo tgwebproxyr secret quota alice 10G
+sudo tgwebproxyr secret disable alice
+sudo tgwebproxyr secret enable alice
+sudo tgwebproxyr secret reset-usage alice
+sudo tgwebproxyr quota status
 sudo tgwebproxyr metrics
-# всего + по каждому пользователю (↑ / ↓ / сессии)
+# всего + по каждому пользователю (↑ / ↓ / сессии + used/quota)
 ```
 
-Нужен relay **≥1.6.12** (в `/metrics` строки `tproxy_*{profile="…"}`).  
+### Лимиты трафика (≥1.6.13)
+
+| Поле | Где | Смысл |
+| --- | --- | --- |
+| `quota_bytes` | `profiles.json` | лимит ↑+↓ (0 = без лимита) |
+| `enabled` | `profiles.json` | `false` = soft-off (не в relay/mtproxy) |
+| `used` | `usage.json` | учтённый трафик (переживает recreate) |
+
+При `used ≥ quota` таймер/`quota check` ставит `enabled=false` и делает `secret apply`.  
+Форматы: `10G` · `500M` · `unlimited` · число байт.
+
+Нужен relay **≥1.6.12** для live per-profile metrics.  
 Имя: латиница, цифры, `._-` (без пробелов).
 
 ## Бот

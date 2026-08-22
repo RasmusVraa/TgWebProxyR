@@ -1,9 +1,8 @@
 # Shop API
 
-REST для внешних магазинов и скриптов: пользователи, ссылки, трафик.
+REST для внешних магазинов и скриптов: пользователи, ссылки, трафик, **лимиты**.
 
-Актуально с **v1.6.6+**. После create/delete вызывается `secret apply` (relay + все `-S` у MTProxy).  
-`/v1/traffic` с **v1.6.12** отдаёт `users[]` (сессии / байты по профилю), если relay уже с патчем metrics.
+Актуально с **v1.6.6+**. Квоты — с **v1.6.13**. После create/delete вызывается `secret apply`.
 
 ## Установка
 
@@ -34,13 +33,24 @@ Authorization: Bearer <TWPR_API_TOKEN>
 | --- | --- | --- |
 | GET | `/v1/health` | liveness |
 | GET | `/v1/status` | hostname, число users, mode |
-| GET | `/v1/users` | список + ссылки |
-| POST | `/v1/users` | `{"name":"alice"}` |
-| GET | `/v1/users/{name}` | профиль |
+| GET | `/v1/users` | список + ссылки + quota/used/enabled |
+| POST | `/v1/users` | `{"name":"alice","quota":"10G"}` |
+| GET | `/v1/users/{name}` | профиль + квота |
 | GET | `/v1/users/{name}/link` | tg / https |
-| PATCH | `/v1/users/{name}` | `{"name":"bob"}` rename |
+| PATCH | `/v1/users/{name}` | rename / `quota` / `enabled` / `reset_usage` |
 | DELETE | `/v1/users/{name}` | удалить (не `default`) |
-| GET | `/v1/traffic` | всего + `users[]` (сессии / ↑ / ↓ по профилю) |
+| GET | `/v1/traffic` | live + used/quota по пользователям |
+
+### PATCH примеры
+
+```json
+{"name":"bob"}
+{"quota":"5G"}
+{"quota_bytes":5368709120}
+{"enabled":false}
+{"reset_usage":true}
+{"quota":"unlimited","enabled":true}
+```
 
 ## Примеры
 
@@ -48,21 +58,14 @@ Authorization: Bearer <TWPR_API_TOKEN>
 TOKEN=$(sudo tgwebproxyr api token)
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8787/v1/users
-
-curl -s -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"shop_user1"}' \
+  -d '{"name":"shop_user1","quota":"10G"}' \
   http://127.0.0.1:8787/v1/users
 
-curl -s -H "Authorization: Bearer $TOKEN" \
-  -X PATCH -H "Content-Type: application/json" \
-  -d '{"name":"shop_user2"}' \
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled":true,"quota":"5G"}' \
   http://127.0.0.1:8787/v1/users/shop_user1
-
-curl -s -H "Authorization: Bearer $TOKEN" \
-  -X DELETE \
-  http://127.0.0.1:8787/v1/users/shop_user2
 
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8787/v1/traffic

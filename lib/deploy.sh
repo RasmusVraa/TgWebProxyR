@@ -646,8 +646,14 @@ TWPR_setup_docker() {
     TWPR_PORT_HTTPS="$https"
     TWPR_INSTALLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     TWPR_prepare_site
+    if declare -F TWPR_certs_probe_and_choose >/dev/null 2>&1; then
+      TWPR_certs_probe_and_choose || true
+    fi
     TWPR_docker_write_env
     TWPR_save_state
+    if declare -F TWPR_certs_prepare_docker >/dev/null 2>&1; then
+      TWPR_certs_prepare_docker || true
+    fi
     TWPR_docker_compose down --remove-orphans 2>/dev/null || true
     TWPR_docker_up || return 1
     TWPR_ok "Docker-стек запущен"
@@ -701,12 +707,19 @@ TWPR_cmd_update() {
     fi
     TWPR_docker_pull_images || true
     TWPR_docker_up
+    if declare -F TWPR_quota_install_timer >/dev/null 2>&1; then
+      TWPR_quota_install_timer 2>/dev/null || true
+    fi
   else
     TWPR_fetch_engine
     TWPR_info "Пересобираю / обновляю native стек…"
     TWPR_run_official_install || true
     if declare -F TWPR_certs_apply_native >/dev/null 2>&1; then
       TWPR_certs_apply_native
+    fi
+    TWPR_profiles_apply_engine 2>/dev/null || true
+    if declare -F TWPR_quota_install_timer >/dev/null 2>&1; then
+      TWPR_quota_install_timer 2>/dev/null || true
     fi
   fi
 

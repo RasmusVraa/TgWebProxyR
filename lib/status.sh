@@ -134,12 +134,12 @@ TWPR_cmd_health() {
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     echo ""
     TWPR_info "HTTPS ${TWPR_HOSTNAME}…"
-    if [[ "${TWPR_PORT_HTTPS:-443}" == "443" ]]; then
-      TWPR_info "Сайт: https://${TWPR_HOSTNAME}/"
-    else
-      TWPR_info "Сайт: https://${TWPR_HOSTNAME}:${TWPR_PORT_HTTPS}/"
+    local https_url="https://${TWPR_HOSTNAME}/"
+    if [[ "${TWPR_PORT_HTTPS:-443}" != "443" ]]; then
+      https_url="https://${TWPR_HOSTNAME}:${TWPR_PORT_HTTPS}/"
     fi
-    if curl -fsSk --max-time 5 "https://${TWPR_HOSTNAME}/" -o /dev/null 2>/dev/null; then
+    TWPR_info "Сайт: ${https_url}"
+    if curl -fsSk --max-time 5 "$https_url" -o /dev/null 2>/dev/null; then
       TWPR_ok "HTTPS отвечает"
     else
       TWPR_warn "HTTPS с хоста не открылся (DNS/ACME/firewall?)"
@@ -280,7 +280,12 @@ TWPR_cmd_metrics() {
 TWPR_cmd_logs() {
   TWPR_load_state
   if TWPR_is_docker; then
-    TWPR_docker_compose logs --tail="${2:-80}" "${1:-}"
+    local svc="${1:-}" lines="${2:-80}"
+    if [[ -n "$svc" ]]; then
+      TWPR_docker_compose logs --tail="$lines" "$svc"
+    else
+      TWPR_docker_compose logs --tail="$lines"
+    fi
     return
   fi
   local unit="${1:-tproxy-server}"

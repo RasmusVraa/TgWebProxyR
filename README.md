@@ -6,7 +6,7 @@
 
 Основа — официальный PoC [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server) + MTProxy. Клиент: **Telegram Desktop ≥ 7.1.1**, тип прокси **WEB**.
 
-**Сейчас:** [v1.6.12](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.12) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
+**Сейчас:** [v1.6.13](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.13) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
 
 ---
 
@@ -134,10 +134,16 @@ sudo tgwebproxyr secret link alice
 sudo tgwebproxyr secret rename alice bob
 sudo tgwebproxyr secret remove bob
 sudo tgwebproxyr secret apply              # перечитать реестр в движок
+sudo tgwebproxyr secret quota alice 10G    # лимит трафика (↑+↓)
+sudo tgwebproxyr secret disable alice      # soft-off без удаления
+sudo tgwebproxyr secret enable alice
+sudo tgwebproxyr secret reset-usage alice  # сброс учтённого used
+sudo tgwebproxyr quota check               # enforce + таймер
 sudo tgwebproxyr metrics                   # всего + по пользователям (:8081)
 ```
 
 После `add` / `remove` / `rename` профили сами уходят в relay **и** в MTProxy (несколько `-S`).  
+Лимит: учёт в `/etc/tgwebproxyr/usage.json`; при исчерпании профиль **отключается** (не удаляется).  
 Если новый пользователь не коннектится — `secret apply` и в логах mtproxy строка `mtproxy -S count: N`.
 
 ---
@@ -181,11 +187,17 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 curl -s -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"name":"shop_user1"}' \
+  -d '{"name":"shop_user1","quota":"10G"}' \
   http://127.0.0.1:8787/v1/users
+
+# лимит / вкл-выкл / сброс usage
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"quota":"5G","enabled":true}' \
+  http://127.0.0.1:8787/v1/users/shop_user1
 ```
 
-Эндпоинты: users CRUD, link, traffic, status.  
+Эндпоинты: users CRUD (+ `quota_bytes` / `enabled` / `used_bytes`), link, traffic, status.  
 Wiki: [API](https://github.com/RasmusVraa/TgWebProxyR/wiki/API).
 
 ---
@@ -205,6 +217,10 @@ tgwebproxyr logs [svc] [n]
 tgwebproxyr doctor
 
 tgwebproxyr secret list|show|link|rotate|add|rename|remove|apply
+tgwebproxyr secret quota <name> <10G|unlimited>
+tgwebproxyr secret enable|disable <name>
+tgwebproxyr secret reset-usage <name|all>
+tgwebproxyr quota check|status
 tgwebproxyr metrics [--raw]          # всего + по пользователям
 tgwebproxyr api setup|token|status|logs
 tgwebproxyr bot setup|update|status|restart|logs
@@ -219,7 +235,8 @@ tgwebproxyr uninstall
 | --- | --- |
 | `/opt/tgwebproxyr` | код менеджера |
 | `/etc/tgwebproxyr/settings.env` | hostname, режим, порты |
-| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets |
+| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets / квоты |
+| `/etc/tgwebproxyr/usage.json` | учтённый трафик (лимиты) |
 | `/etc/tgwebproxyr/bot.env` | бот |
 | `/etc/tgwebproxyr/api.env` | Shop API token |
 | `/srv/tproxy-site` | публичный сайт |
@@ -302,13 +319,13 @@ wget -qO /tmp/twpr.sh \
 
 ```bash
 sudo wget -qO /tmp/twpr.tgz \
-  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.12.tar.gz
+  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.13.tar.gz
 sudo tar -xzf /tmp/twpr.tgz -C /opt/tgwebproxyr --strip-components=1
 sudo tgwebproxyr update --stack-only
 sudo tgwebproxyr bot update
 ```
 
-После обновления Docker до **1.6.12**: `sudo tgwebproxyr secret apply` — новый relay (трафик по пользователям) и mtproxy с `--nat-info`.
+После обновления Docker до **1.6.13**: `sudo tgwebproxyr secret apply` — квоты, `--nat-info`, per-user metrics.
 
 Удаление: `sudo tgwebproxyr uninstall`.
 

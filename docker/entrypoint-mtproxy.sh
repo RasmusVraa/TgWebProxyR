@@ -47,7 +47,7 @@ trap 'rm -f "$SECRETS_FILE"' EXIT
 
 if [ -s "$HOST_PROFILES" ] && command -v jq >/dev/null 2>&1; then
   echo ">> mtproxy secrets from host profiles"
-  jq -r '.profiles[]?.secret // empty' "$HOST_PROFILES" 2>/dev/null | while read -r raw; do
+  jq -r '.profiles[]? | select((.enabled // true) != false) | .secret // empty' "$HOST_PROFILES" 2>/dev/null | while read -r raw; do
     ns="$(normalize_secret "$raw")"
     [ -n "$ns" ] && echo "$ns"
   done | sort -u >"$SECRETS_FILE"
@@ -109,8 +109,15 @@ case "$NAT_INFO" in
   off|OFF|none|NONE|0|false|FALSE) NAT_INFO="" ;;
   "")
     LOCAL_IP="$(detect_local_ip)"
-    # INTERNAL_IP override
-    [ -n "${MTPROXY_INTERNAL_IP:-}" ] && LOCAL_IP="$(detect_ipv4 "$MTPROXY_INTERNAL_IP")"
+    # INTERNAL_IP override — только если валидный IPv4
+    if [ -n "${MTPROXY_INTERNAL_IP:-}" ]; then
+      _lip="$(detect_ipv4 "$MTPROXY_INTERNAL_IP")"
+      if [ -n "$_lip" ]; then
+        LOCAL_IP="$_lip"
+      else
+        echo ">> WARN: MTPROXY_INTERNAL_IP invalid, keep auto ${LOCAL_IP:-?}"
+      fi
+    fi
     GLOBAL_IP="$(detect_public_ip || true)"
     if [ -n "$LOCAL_IP" ] && [ -n "$GLOBAL_IP" ] && [ "$LOCAL_IP" != "$GLOBAL_IP" ]; then
       NAT_INFO="${LOCAL_IP}:${GLOBAL_IP}"

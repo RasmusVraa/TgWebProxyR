@@ -35,6 +35,8 @@ source "${TWPR_ROOT}/lib/service.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/api.sh"
 # shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/quota.sh"
+# shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/menu.sh"
 
 TWPR_usage() {
@@ -66,6 +68,10 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr secret rename <old> <new>
   tgwebproxyr secret remove <name>
   tgwebproxyr secret apply
+  tgwebproxyr secret quota <name> <10G|unlimited>
+  tgwebproxyr secret enable|disable <name>
+  tgwebproxyr secret reset-usage <name|all>
+  tgwebproxyr quota check|status     # enforce лимитов трафика
   tgwebproxyr metrics             трафик (relay /metrics)
 
   ${C_BOLD}Прочее${C_RESET}
@@ -110,10 +116,15 @@ main() {
         rename|mv) shift || true; TWPR_cmd_secret_rename "${1:-}" "${2:-}" ;;
         remove|rm|del) shift || true; TWPR_cmd_secret_remove "${1:-}" ;;
         apply|sync) TWPR_cmd_secret_apply ;;
+        quota|limit) shift || true; TWPR_cmd_secret_quota "${1:-}" "${2:-}" ;;
+        enable|on) shift || true; TWPR_cmd_secret_enable "${1:-}" 1 ;;
+        disable|off) shift || true; TWPR_cmd_secret_enable "${1:-}" 0 ;;
+        reset-usage|reset_usage) shift || true; TWPR_cmd_secret_reset_usage "${1:-}" ;;
         ""|menu) TWPR_menu_secrets ;;
-        *) TWPR_err "secret: list|show|link|rotate|add|rename|remove|apply"; exit 2 ;;
+        *) TWPR_err "secret: list|show|link|rotate|add|rename|remove|apply|quota|enable|disable|reset-usage"; exit 2 ;;
       esac
       ;;
+    quota|quotas) TWPR_cmd_quota "$@" ;;
     metrics|traffic) TWPR_cmd_metrics "$@" ;;
     bot) TWPR_cmd_bot "$@" ;;
     api) TWPR_cmd_api "$@" ;;

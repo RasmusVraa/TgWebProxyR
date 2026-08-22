@@ -109,7 +109,9 @@ TWPR_backup_create() {
   for f in \
     /etc/tgwebproxyr/settings.env \
     /etc/tgwebproxyr/bot.env \
+    /etc/tgwebproxyr/api.env \
     /etc/tgwebproxyr/profiles.json \
+    /etc/tgwebproxyr/usage.json \
     /etc/tgwebproxyr/autobackup.env; do
     [[ -f "$f" ]] && cp -a "$f" "$dest/"
   done
@@ -184,7 +186,9 @@ TWPR_backup_restore() {
   mkdir -p /etc/tgwebproxyr "${TWPR_ROOT}/docker"
   [[ -f "$src/settings.env" ]] && cp -a "$src/settings.env" /etc/tgwebproxyr/settings.env
   [[ -f "$src/bot.env" ]] && cp -a "$src/bot.env" /etc/tgwebproxyr/bot.env
+  [[ -f "$src/api.env" ]] && cp -a "$src/api.env" /etc/tgwebproxyr/api.env
   [[ -f "$src/profiles.json" ]] && install -m 0600 "$src/profiles.json" /etc/tgwebproxyr/profiles.json
+  [[ -f "$src/usage.json" ]] && install -m 0600 "$src/usage.json" /etc/tgwebproxyr/usage.json
   [[ -f "$src/autobackup.env" ]] && cp -a "$src/autobackup.env" /etc/tgwebproxyr/autobackup.env
   [[ -f "$src/docker.env" ]] && cp -a "$src/docker.env" "${TWPR_ROOT}/docker/.env"
   [[ -f "$src/.env" ]] && cp -a "$src/.env" "${TWPR_ROOT}/docker/.env"
@@ -193,13 +197,15 @@ TWPR_backup_restore() {
   TWPR_load_state
   TWPR_ensure_default_profile 2>/dev/null || true
   if TWPR_is_docker; then
+    # не перезаписывать восстановленный .env целиком — только подтянуть hostname/secret из settings
     TWPR_docker_write_env 2>/dev/null || true
-    TWPR_docker_compose up -d --force-recreate --remove-orphans 2>/dev/null || true
+    TWPR_profiles_apply_engine 2>/dev/null || \
+      TWPR_docker_compose up -d --force-recreate --remove-orphans 2>/dev/null || true
   else
-    [[ -f /etc/tgwebproxyr/profiles.json ]] \
-      && install -m 0400 /etc/tgwebproxyr/profiles.json /etc/tproxy-server/profiles.json 2>/dev/null || true
-    systemctl restart mtproxy tproxy-server caddy tgwebproxyr-bot 2>/dev/null || true
+    TWPR_profiles_apply_engine 2>/dev/null || true
+    systemctl restart caddy tgwebproxyr-bot tgwebproxyr-api 2>/dev/null || true
   fi
+  systemctl restart tgwebproxyr-api 2>/dev/null || true
   TWPR_ok "Восстановлено из $(basename "$archive")"
 }
 

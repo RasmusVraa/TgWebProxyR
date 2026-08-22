@@ -133,21 +133,21 @@ def apply_profiles() -> str:
 def ensure_default(profiles: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     profiles = list(profiles or [])
     sec = secret_default()
+    port = CFG.get("TWPR_PORT_MTPROXY") or "2398"
+    backend = f"127.0.0.1:{port}"
+    old = next((p for p in profiles if p.get("name") == "default"), {})
     rest = [p for p in profiles if p.get("name") != "default"]
     if sec:
-        profiles = [
-            {
-                "name": "default",
-                "secret": sec,
-                "backend": "127.0.0.1:2398",
-                "carrier_mode": "https",
-            }
-        ] + rest
-    elif rest:
-        profiles = rest
-    else:
-        profiles = []
-    return profiles
+        default = {
+            "name": "default",
+            "secret": sec,
+            "backend": backend,
+            "carrier_mode": "https",
+            "enabled": old.get("enabled", True) if isinstance(old, dict) else True,
+            "quota_bytes": int(old.get("quota_bytes") or 0) if isinstance(old, dict) else 0,
+        }
+        return [default] + rest
+    return rest
 
 
 def load_profiles() -> list[dict[str, Any]]:
@@ -158,12 +158,15 @@ def load_profiles() -> list[dict[str, Any]]:
             profiles = list(data.get("profiles") or [])
         except Exception:
             profiles = []
+    before = json.dumps(profiles, sort_keys=True, ensure_ascii=False)
     profiles = ensure_default(profiles)
-    # синхронизируем файл, если default появился/обновился
-    try:
-        save_registry(profiles)
-    except Exception:
-        pass
+    after = json.dumps(profiles, sort_keys=True, ensure_ascii=False)
+    # пишем только если default реально изменился (не на каждый read)
+    if before != after:
+        try:
+            save_registry(profiles)
+        except Exception:
+            pass
     return profiles
 
 
@@ -311,6 +314,18 @@ def text_users_page(page: int) -> tuple[str, dict[str, Any]]:
     return "\n".join(lines), kb(rows)
 
 
+USAGE_FILE = STATE_DIR / "usage.json"
+
+
+def load_usage() -> dict[str, Any]:
+    if not USAGE_FILE.is_file():
+        return {}
+    try:
+        return dict(json.loads(USAGE_FILE.read_text(encoding="utf-8")).get("users") or {})
+    except Exception:
+        return {}
+
+
 def text_user_card(name: str) -> tuple[str, dict[str, Any]]:
     users = load_profiles()
     p = next((x for x in users if x.get("name") == name), None)
@@ -318,13 +333,24 @@ def text_user_card(name: str) -> tuple[str, dict[str, Any]]:
         return f"Профиль <code>{esc(name)}</code> не найден.", back_kb("u:list:0")
     sec = str(p.get("secret", ""))
     host = hostname()
+    enabled = p.get("enabled", True) is not False
+    quota = int(p.get("quota_bytes") or 0)
+    used = int((load_usage().get(name) or {}).get("bytes_total") or 0)
+    st = "🟢 ON" if enabled else "🔴 OFF (лимит/выкл)"
+    qline = "лимит: ∞" if quota <= 0 else f"лимит: {_human_bytes(quota)} · used {_human_bytes(used)}"
     body = (
-        f"<b>Профиль · {esc(name)}</b>\n\n"
+        f"<b>Профиль · {esc(name)}</b> · {st}\n"
+        f"{qline}\n\n"
         f"Secret: <code>{esc(sec)}</code>\n\n"
         f"<code>{esc(tg_link(host, sec))}</code>\n"
         f"<code>{esc(web_link(host, sec))}</code>"
     )
     rows = [[("🔗 Ссылка", f"l:show:{name}")]]
+    rows.append([("📏 Лимит", f"u:quota:{name}"), ("♻ Сброс used", f"u:resetu:{name}")])
+    if enabled:
+        rows.append([("⏸ Выкл", f"u:dis:{name}")])
+    else:
+        rows.append([("▶️ Вкл", f"u:en:{name}")])
     if name != "default":
         rows.append([("✏️ Имя", f"u:ren:{name}"), ("🗑 Удалить", f"u:del:{name}")])
     rows.append([("⬅️ К списку", "u:list:0")])
@@ -452,14 +478,12 @@ def _probe_admin() -> str:
     code, _ = _http_get(f"{_admin_base()}/healthz", timeout=2.0)
     if code == 200:
         return "alive"
-    if is_docker() and _fetch_metrics_docker():
-        return "ready"
-    # docker healthz
+    # docker: probe readyz/healthz via compose (не путать metrics с ready)
     compose = DOCKER_DIR / "docker-compose.yml"
     envf = DOCKER_DIR / ".env"
     if compose.is_file() and envf.is_file():
         for path in ("readyz", "healthz"):
-            out = sh(
+            rc = sh(
                 [
                     "docker",
                     "compose",
@@ -472,13 +496,17 @@ def _probe_admin() -> str:
                     "mtproxy",
                     "curl",
                     "-fsS",
+                    "-o",
+                    "/dev/null",
+                    "-w",
+                    "%{http_code}",
                     "--max-time",
                     "2",
                     f"http://127.0.0.1:8081/{path}",
                 ],
                 timeout=6,
             )
-            if out.strip() or "ready" in out.lower() or "ok" in out.lower():
+            if rc.strip().endswith("200"):
                 return "ready" if path == "readyz" else "alive"
     return "down"
 
@@ -578,31 +606,38 @@ def text_traffic() -> str:
 
     lines.append("")
     lines.append("<b>По пользователям</b>")
-    if not per:
+    usage = load_usage()
+    ordered = [str(p.get("name")) for p in users]
+    for name in list(per.keys()):
+        if name not in ordered:
+            ordered.append(name)
+    if not per and not users:
+        lines.append("<i>Нет профилей.</i>")
+    elif not per:
         lines.append(
-            "<i>Нет per-profile метрик — нужен relay из релиза ≥1.6.12 "
-            "(<code>tgwebproxyr update</code> + recreate).</i>"
+            "<i>Нет per-profile метрик live — нужен relay ≥1.6.12. "
+            "Ниже — учтённый usage / квоты.</i>"
         )
-        for p in users:
-            lines.append(f"• <b>{esc(p.get('name'))}</b> —")
-    else:
-        # порядок как в реестре, потом остальные из метрик
-        ordered = [str(p.get("name")) for p in users]
-        for name in list(per.keys()):
-            if name not in ordered:
-                ordered.append(name)
-        for name in ordered:
-            slot = per.get(name) or {}
-            sess = int(slot.get("sessions", 0))
-            up = slot.get("up", 0.0)
-            down = slot.get("down", 0.0)
-            mark = "🟢" if sess > 0 else "○"
-            lines.append(
-                f"{mark} <b>{esc(name)}</b> · sess <code>{sess}</code> · "
-                f"↑ {_human_bytes(up)} · ↓ {_human_bytes(down)}"
-            )
+    for name in ordered:
+        p = next((x for x in users if x.get("name") == name), {}) or {}
+        slot = per.get(name) or {}
+        sess = int(slot.get("sessions", 0))
+        up = slot.get("up", 0.0)
+        down = slot.get("down", 0.0)
+        enabled = p.get("enabled", True) is not False
+        quota = int(p.get("quota_bytes") or 0)
+        used = int((usage.get(name) or {}).get("bytes_total") or 0)
+        mark = "🔴" if not enabled else ("🟢" if sess > 0 else "○")
+        q = "∞" if quota <= 0 else _human_bytes(quota)
+        live = f"↑ {_human_bytes(up)} · ↓ {_human_bytes(down)}" if per else "—"
+        lines.append(
+            f"{mark} <b>{esc(name)}</b> · sess <code>{sess}</code> · {live}\n"
+            f"   used {_human_bytes(used)} / {q}"
+        )
 
-    lines.append("\n<i>Счётчики с момента старта relay (накопительные).</i>")
+    lines.append(
+        "\n<i>Live — с момента старта relay. Used — учёт квоты (переживает recreate).</i>"
+    )
     return "\n".join(lines)
 
 
@@ -928,6 +963,39 @@ def handle_callback(cq: dict[str, Any]) -> None:
         show(chat, mid, f"Удалён <b>{esc(name)}</b>\n<pre>{esc(out[-400:])}</pre>\n\n" + body, markup)
         return
 
+    if data.startswith("u:quota:"):
+        name = data.split(":", 2)[2]
+        PENDING[int(chat)] = {"action": "quota", "name": name, "mid": mid}
+        show(
+            chat,
+            mid,
+            f"<b>Лимит трафика</b> · <code>{esc(name)}</code>\n\n"
+            "Отправьте лимит: <code>10G</code> · <code>500M</code> · <code>unlimited</code>",
+            kb([[("❌ Отмена", f"u:show:{name}")]]),
+        )
+        return
+
+    if data.startswith("u:resetu:"):
+        name = data.split(":", 2)[2]
+        out = cli_secret("reset-usage", name)
+        body, markup = text_user_card(name)
+        show(chat, mid, f"Usage сброшен.\n<pre>{esc(out[-200:])}</pre>\n\n" + body, markup)
+        return
+
+    if data.startswith("u:en:"):
+        name = data.split(":", 2)[2]
+        out = cli_secret("enable", name)
+        body, markup = text_user_card(name)
+        show(chat, mid, f"<pre>{esc(out[-200:])}</pre>\n\n" + body, markup)
+        return
+
+    if data.startswith("u:dis:"):
+        name = data.split(":", 2)[2]
+        out = cli_secret("disable", name)
+        body, markup = text_user_card(name)
+        show(chat, mid, f"<pre>{esc(out[-200:])}</pre>\n\n" + body, markup)
+        return
+
     if data.startswith("u:list:"):
         PENDING.pop(int(chat), None)
         page = int(data.split(":")[-1] or 0)
@@ -1045,11 +1113,19 @@ def handle_message(msg: dict[str, Any]) -> None:
         send_message(chat, "⛔ Нет доступа.")
         return
 
-    # ожидание имени (add / rename)
+    # ожидание имени (add / rename) или лимита
     pend = PENDING.get(int(chat))
     if pend and text and not text.startswith("/"):
         action = pend.get("action")
-        mid = pend.get("mid")
+        if action == "quota":
+            name = str(pend.get("name") or "")
+            PENDING.pop(int(chat), None)
+            send_message(chat, f"⏳ Лимит для <b>{esc(name)}</b>…")
+            out = cli_secret("quota", name, text.strip())
+            sh([str(CLI), "quota", "check"], timeout=60, env={"TWPR_YES": "1"})
+            body, markup = text_user_card(name)
+            send_message(chat, f"<pre>{esc(out[-300:])}</pre>\n\n{body}", markup)
+            return
         name = sanitize_name(text)
         if not name or name == "default":
             send_message(chat, "Некорректное имя. Попробуйте ещё раз или /users")

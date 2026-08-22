@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.13 — 2026-08-23
+
+- Лимиты трафика на пользователя: `secret quota`, бот, Shop API (`quota_bytes` / `enabled` / `reset_usage`)
+- Soft-disable при исчерпании квоты (профиль не попадает в relay/mtproxy); таймер `tgwebproxyr-quota.timer`
+- Фиксы: native `-H` порт MTProxy, Docker advanced TLS, restore + api.env/NAT/apply, bot не переписывает registry на каждый read, metrics API fallback, logs без пустого svc, HTTPS probe с кастомным портом, `TWPR_DEPLOY_MODE=native` не ломается от leftover `.env`
+
 ## 1.6.12 — 2026-08-22
 
 - Трафик **по каждому пользователю** (сессии / ↑ / ↓) в боте, `tgwebproxyr metrics` и Shop API
