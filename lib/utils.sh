@@ -38,17 +38,10 @@ TWPR_load_state() {
     source "${TWPR_STATE_DIR}/settings.env"
     set -e
   fi
-  # автодетект Docker, если режим не записан, но стек есть
+  # быстрый автодетект Docker — только по файлам, без docker compose
   if [[ "${TWPR_DEPLOY_MODE:-}" != "docker" ]] \
-     && [[ -f "${TWPR_ROOT}/docker/.env" ]] \
-     && command -v docker >/dev/null 2>&1; then
-    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
-         --env-file "${TWPR_ROOT}/docker/.env" ps -q 2>/dev/null | grep -q .; then
-      TWPR_DEPLOY_MODE="docker"
-    elif [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
-      # .env есть — считаем docker даже если контейнеры сейчас down
-      TWPR_DEPLOY_MODE="docker"
-    fi
+     && [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
+    TWPR_DEPLOY_MODE="docker"
   fi
 }
 

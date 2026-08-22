@@ -76,7 +76,7 @@ TWPR_cmd_status() {
   TWPR_load_state
   local admin="${TWPR_PORT_ADMIN:-8081}"
   echo ""
-  echo -e "  ${C_BOLD}Статус сервисов${C_RESET}"
+  echo -e "  ${C_BOLD}Статус сервисов${C_RESET}  ${C_DIM}(без health-probe)${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 
   if TWPR_is_docker; then
@@ -87,24 +87,12 @@ TWPR_cmd_status() {
       TWPR_warn "Нет ${TWPR_ROOT}/docker/.env — сначала: tgwebproxyr docker setup"
       return 1
     fi
-    echo ""
-    local hz
-    hz="$(TWPR_health_probe)"
-    case "$hz" in
-      ready) TWPR_ok "relay readyz OK (backend жив)" ;;
-      alive) TWPR_warn "relay healthz OK, readyz ещё нет" ;;
-      *)     TWPR_err "relay health недоступен — смотрите: tgwebproxyr docker logs" ;;
-    esac
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
       echo ""
       TWPR_info "Hostname: ${TWPR_HOSTNAME}"
-      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
-      if curl -fsSk --max-time 5 "https://${TWPR_HOSTNAME}/" -o /dev/null 2>/dev/null; then
-        TWPR_ok "HTTPS отвечает"
-      else
-        TWPR_warn "HTTPS с хоста не открылся (DNS/ACME/firewall?)"
-      fi
     fi
+    echo ""
+    TWPR_info "Проверка healthz/readyz:  ${C_BOLD}tgwebproxyr health${C_RESET}"
     return 0
   fi
 
@@ -121,22 +109,40 @@ TWPR_cmd_status() {
 
   echo ""
   TWPR_info "Порты: HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443} · relay ${TWPR_PORT_RELAY:-8080} · admin ${admin} · mtproxy ${TWPR_PORT_MTPROXY:-2398}"
-
+  if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
+    echo ""
+    TWPR_info "Hostname: ${TWPR_HOSTNAME}"
+  fi
   echo ""
-  case "$(TWPR_health_probe)" in
+  TWPR_info "Проверка healthz/readyz:  ${C_BOLD}tgwebproxyr health${C_RESET}"
+}
+
+TWPR_cmd_health() {
+  TWPR_load_state
+  local admin="${TWPR_PORT_ADMIN:-8081}" hz
+  echo ""
+  echo -e "  ${C_BOLD}Проверка работоспособности${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  TWPR_info "Пробую healthz / readyz…"
+  hz="$(TWPR_health_probe 2>/dev/null || echo down)"
+  case "$hz" in
     ready) TWPR_ok "relay readyz OK (backend жив)" ;;
-    alive) TWPR_warn "relay healthz OK, backend не ready" ;;
-    *)     TWPR_warn "relay healthz недоступен" ;;
+    alive) TWPR_warn "relay healthz OK, readyz ещё нет" ;;
+    *)     TWPR_err "relay health недоступен — смотрите: tgwebproxyr logs" ;;
   esac
 
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     echo ""
-    TWPR_info "Hostname: ${TWPR_HOSTNAME}"
+    TWPR_info "HTTPS ${TWPR_HOSTNAME}…"
     if [[ "${TWPR_PORT_HTTPS:-443}" == "443" ]]; then
-      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
+      TWPR_info "Сайт: https://${TWPR_HOSTNAME}/"
     else
-      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}:${TWPR_PORT_HTTPS}/"
-      TWPR_warn "Telegram WEB всё равно стучится на :443 — нужен DNAT/фронт"
+      TWPR_info "Сайт: https://${TWPR_HOSTNAME}:${TWPR_PORT_HTTPS}/"
+    fi
+    if curl -fsSk --max-time 5 "https://${TWPR_HOSTNAME}/" -o /dev/null 2>/dev/null; then
+      TWPR_ok "HTTPS отвечает"
+    else
+      TWPR_warn "HTTPS с хоста не открылся (DNS/ACME/firewall?)"
     fi
   fi
 }

@@ -50,6 +50,7 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   ${C_BOLD}Прокси${C_RESET}
   tgwebproxyr start|stop|restart
   tgwebproxyr status
+  tgwebproxyr health              проверка healthz/readyz/HTTPS
   tgwebproxyr link
   tgwebproxyr logs [unit|svc] [lines]
   tgwebproxyr doctor
@@ -84,6 +85,7 @@ main() {
     stop) TWPR_cmd_stop "$@" ;;
     restart) TWPR_cmd_restart "$@" ;;
     status) TWPR_cmd_status "$@" ;;
+    health|check|probe) TWPR_cmd_health "$@" ;;
     link|links) TWPR_cmd_link "$@" ;;
     logs) TWPR_load_state; TWPR_cmd_logs "$@" ;;
     update) TWPR_cmd_update ;;

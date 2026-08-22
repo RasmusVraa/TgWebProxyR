@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.2 — 2026-08-22
+
+- Меню открывается без health-probe (было медленно)
+- Отдельный пункт / команда: `tgwebproxyr health` (healthz/readyz/HTTPS)
+
 ## 1.6.1 — 2026-08-22
 
 - Фикс bot setup: admin id больше не портится (UI ушёл в stderr)

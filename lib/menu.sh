@@ -5,20 +5,15 @@ TWPR_menu_header() {
   clear 2>/dev/null || true
   TWPR_banner
   TWPR_load_state
-  local mode="—" hz health
+  local mode="—"
   if TWPR_is_configured; then
     if TWPR_is_docker; then
       mode="Docker"
     else
       mode="Native"
     fi
-    hz="$(TWPR_health_probe 2>/dev/null || echo down)"
-    case "$hz" in
-      ready) health="${C_GREEN}ready${C_RESET}" ;;
-      alive) health="${C_YELLOW}alive${C_RESET}" ;;
-      *)     health="${C_RED}down${C_RESET}" ;;
-    esac
-    echo -e "  ${C_BOLD}${TWPR_HOSTNAME:-?}${C_RESET}  ·  ${mode}  ·  ${health}"
+    # без health-probe — меню должно открываться мгновенно
+    echo -e "  ${C_BOLD}${TWPR_HOSTNAME:-?}${C_RESET}  ·  ${mode}"
   else
     echo -e "  ${C_YELLOW}ещё не установлено${C_RESET}"
   fi
@@ -31,13 +26,14 @@ TWPR_dashboard() {
     TWPR_menu_header
     echo -e "  ${C_BOLD}1${C_RESET})  Ссылки"
     echo -e "  ${C_BOLD}2${C_RESET})  Статус"
-    echo -e "  ${C_BOLD}3${C_RESET})  Управление   ${C_DIM}start / stop / restart${C_RESET}"
-    echo -e "  ${C_BOLD}4${C_RESET})  Логи"
-    echo -e "  ${C_BOLD}5${C_RESET})  Пользователи / secrets"
-    echo -e "  ${C_BOLD}6${C_RESET})  Настройки"
-    echo -e "  ${C_BOLD}7${C_RESET})  Telegram-бот"
-    echo -e "  ${C_BOLD}8${C_RESET})  Обновление и бэкапы"
-    echo -e "  ${C_BOLD}9${C_RESET})  Установка / переустановка"
+    echo -e "  ${C_BOLD}3${C_RESET})  Проверка работоспособности"
+    echo -e "  ${C_BOLD}4${C_RESET})  Управление   ${C_DIM}start / stop / restart${C_RESET}"
+    echo -e "  ${C_BOLD}5${C_RESET})  Логи"
+    echo -e "  ${C_BOLD}6${C_RESET})  Пользователи / secrets"
+    echo -e "  ${C_BOLD}7${C_RESET})  Настройки"
+    echo -e "  ${C_BOLD}8${C_RESET})  Telegram-бот"
+    echo -e "  ${C_BOLD}9${C_RESET})  Обновление и бэкапы"
+    echo -e "  ${C_BOLD}i${C_RESET})  Установка / переустановка"
     echo -e "  ${C_BOLD}u${C_RESET})  Удалить"
     echo -e "  ${C_BOLD}0${C_RESET})  Выход"
     echo ""
@@ -46,13 +42,14 @@ TWPR_dashboard() {
     case "$choice" in
       1) TWPR_cmd_link; TWPR_pause ;;
       2) TWPR_cmd_status; TWPR_pause ;;
-      3) TWPR_menu_control ;;
-      4) TWPR_menu_logs ;;
-      5) TWPR_menu_secrets ;;
-      6) TWPR_menu_settings ;;
-      7) TWPR_bot_menu; TWPR_pause ;;
-      8) TWPR_menu_ops ;;
-      9) TWPR_menu_install ;;
+      3|h|H) TWPR_cmd_health; TWPR_pause ;;
+      4) TWPR_menu_control ;;
+      5) TWPR_menu_logs ;;
+      6) TWPR_menu_secrets ;;
+      7) TWPR_menu_settings ;;
+      8) TWPR_bot_menu; TWPR_pause ;;
+      9) TWPR_menu_ops ;;
+      i|I) TWPR_menu_install ;;
       u|U) TWPR_cmd_uninstall; TWPR_pause ;;
       0|q|Q) exit 0 ;;
       *) ;;
