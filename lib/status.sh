@@ -205,15 +205,15 @@ TWPR_cmd_metrics() {
   local sessions="" bytes_in="" bytes_out=""
   # распространённые имена из prometheus-экспорта tproxy-server
   sessions="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && $1 ~ /(^|_)(sessions|active_sessions|tproxy_sessions)(_|$|{)/ {
+    /^[^#]/ && $1 ~ /tproxy_sessions_live|sessions_live|(^|_)(sessions|active_sessions)(_|$|{)/ {
       print $NF; exit
     }')"
   bytes_in="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && tolower($1) ~ /(bytes_in|rx_bytes|received_bytes|ingress_bytes)/ {
+    /^[^#]/ && tolower($1) ~ /(bytes_down|bytes_in|rx_bytes|received_bytes|ingress_bytes)/ {
       print $NF; exit
     }')"
   bytes_out="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && tolower($1) ~ /(bytes_out|tx_bytes|sent_bytes|egress_bytes)/ {
+    /^[^#]/ && tolower($1) ~ /(bytes_up|bytes_out|tx_bytes|sent_bytes|egress_bytes)/ {
       print $NF; exit
     }')"
 

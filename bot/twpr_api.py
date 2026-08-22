@@ -126,7 +126,7 @@ def parse_traffic(metrics: str) -> dict[str, Any]:
         except ValueError:
             continue
         low = key.lower()
-        if "session" in low and ("active" in low or "current" in low or low.endswith("_sessions")):
+        if "session" in low and ("live" in low or "active" in low or "current" in low or low.endswith("_sessions")):
             out["sessions"] = num
         if "byte" in low or "traffic" in low or "bytes" in low:
             out["bytes"][key] = num

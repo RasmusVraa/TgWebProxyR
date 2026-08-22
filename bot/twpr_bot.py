@@ -382,12 +382,105 @@ def logs_kb() -> dict[str, Any]:
     return kb([[("🔃 Обновить", "m:logs"), ("⬅️ Меню", "m:root")]])
 
 
-def _fetch_metrics() -> str:
+def _admin_base() -> str:
+    port = CFG.get("TWPR_PORT_ADMIN") or "8081"
+    return f"http://127.0.0.1:{port}"
+
+
+def _http_get(url: str, timeout: float = 2.5) -> tuple[int, str]:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8081/metrics", timeout=2.5) as r:
-            return r.read().decode("utf-8", errors="replace")
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return int(getattr(r, "status", 200) or 200), r.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return int(e.code), body
     except Exception:
+        return 0, ""
+
+
+def _fetch_metrics_docker() -> str:
+    """Fallback: admin слушает loopback внутри контейнера — через compose exec."""
+    compose = DOCKER_DIR / "docker-compose.yml"
+    envf = DOCKER_DIR / ".env"
+    if not compose.is_file() or not envf.is_file():
         return ""
+    for svc in ("relay", "mtproxy"):
+        out = sh(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(compose),
+                "--env-file",
+                str(envf),
+                "exec",
+                "-T",
+                svc,
+                "curl",
+                "-fsS",
+                "--max-time",
+                "3",
+                "http://127.0.0.1:8081/metrics",
+            ],
+            timeout=8,
+        )
+        if out and "tproxy_" in out:
+            return out
+    return ""
+
+
+def _fetch_metrics() -> str:
+    code, body = _http_get(f"{_admin_base()}/metrics")
+    if code == 200 and body.strip():
+        return body
+    # Docker: порт с хоста мог не проброситься на 127.0.0.1-bind
+    if is_docker():
+        via = _fetch_metrics_docker()
+        if via:
+            return via
+    return body if code == 200 else ""
+
+
+def _probe_admin() -> str:
+    """ready | alive | down"""
+    code, _ = _http_get(f"{_admin_base()}/readyz", timeout=2.0)
+    if code == 200:
+        return "ready"
+    code, _ = _http_get(f"{_admin_base()}/healthz", timeout=2.0)
+    if code == 200:
+        return "alive"
+    if is_docker() and _fetch_metrics_docker():
+        return "ready"
+    # docker healthz
+    compose = DOCKER_DIR / "docker-compose.yml"
+    envf = DOCKER_DIR / ".env"
+    if compose.is_file() and envf.is_file():
+        for path in ("readyz", "healthz"):
+            out = sh(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(compose),
+                    "--env-file",
+                    str(envf),
+                    "exec",
+                    "-T",
+                    "mtproxy",
+                    "curl",
+                    "-fsS",
+                    "--max-time",
+                    "2",
+                    f"http://127.0.0.1:8081/{path}",
+                ],
+                timeout=6,
+            )
+            if out.strip() or "ready" in out.lower() or "ok" in out.lower():
+                return "ready" if path == "readyz" else "alive"
+    return "down"
 
 
 def _human_bytes(n: float) -> str:
@@ -403,17 +496,29 @@ def _human_bytes(n: float) -> str:
 def text_traffic() -> str:
     users = load_profiles()
     raw = _fetch_metrics()
+    probe = _probe_admin()
     lines = [
         "<b>Трафик</b>\n",
         f"Профилей: <b>{len(users)}</b>",
+        f"Relay admin: <b>{esc(probe)}</b>",
     ]
     if not raw:
-        lines.append("\nМетрики недоступны (relay :8081).")
-        lines.append("<i>Проверьте: tgwebproxyr health · secret apply</i>")
+        lines.append("\nМетрики <code>/metrics</code> недоступны с хоста.")
+        if probe in ("ready", "alive"):
+            lines.append(
+                "<i>health OK, но :8081 не проброшен — "
+                "обновите стек: <code>tgwebproxyr update</code> "
+                "или <code>secret apply</code>.</i>"
+            )
+        else:
+            lines.append("<i>Проверьте: <code>tgwebproxyr health</code></i>")
         return "\n".join(lines)
 
     sessions = None
-    bytes_map: dict[str, float] = {}
+    streams = None
+    bytes_up = None
+    bytes_down = None
+    extra: dict[str, float] = {}
     for ln in raw.splitlines():
         if not ln or ln.startswith("#"):
             continue
@@ -426,37 +531,34 @@ def text_traffic() -> str:
         except ValueError:
             continue
         low = key.lower()
-        if sessions is None and "session" in low and (
-            "active" in low or "current" in low or low.endswith("_sessions") or "{}" in low or low.endswith("sessions")
-        ):
+        if "sessions_live" in low or low.endswith("_sessions") or low == "tproxy_sessions_live":
             sessions = num
-        if "byte" in low or "traffic" in low:
-            bytes_map[key] = num
+        elif "streams_live" in low:
+            streams = num
+        elif "bytes_up" in low:
+            bytes_up = num
+        elif "bytes_down" in low:
+            bytes_down = num
+        elif "byte" in low or "pending_bytes" in low:
+            extra[key] = num
 
     if sessions is not None:
-        lines.append(f"Активные сессии: <b>{int(sessions) if sessions == int(sessions) else sessions}</b>")
-    else:
-        lines.append("Активные сессии: <i>—</i>")
-
-    if bytes_map:
+        lines.append(f"Сессии (live): <b>{int(sessions)}</b>")
+    if streams is not None:
+        lines.append(f"Потоки (live): <b>{int(streams)}</b>")
+    if bytes_up is not None:
+        lines.append(f"↑ up: <b>{_human_bytes(bytes_up)}</b>")
+    if bytes_down is not None:
+        lines.append(f"↓ down: <b>{_human_bytes(bytes_down)}</b>")
+    if bytes_up is None and bytes_down is None and extra:
         lines.append("")
-        # предпочитаем in/out; иначе топ значений
-        shown = 0
-        preferred = [k for k in bytes_map if any(x in k.lower() for x in ("in", "out", "rx", "tx", "sent", "recv"))]
-        keys = preferred or sorted(bytes_map, key=lambda k: -bytes_map[k])
-        for k in keys[:8]:
-            lines.append(f"• <code>{esc(k)}</code>: <b>{_human_bytes(bytes_map[k])}</b>")
-            shown += 1
-        if not shown:
-            total = sum(bytes_map.values())
-            lines.append(f"Всего (сумма *bytes*): <b>{_human_bytes(total)}</b>")
-    else:
-        lines.append("Счётчики байт в /metrics не найдены.")
-        snippet = "\n".join(ln for ln in raw.splitlines() if ln and not ln.startswith("#"))[:400]
-        if snippet:
-            lines.append(f"\n<pre>{esc(snippet)}</pre>")
+        for k in sorted(extra, key=lambda x: -extra[x])[:6]:
+            lines.append(f"• <code>{esc(k)}</code>: <b>{_human_bytes(extra[k])}</b>")
+    if sessions is None and bytes_up is None and not extra:
+        snippet = "\n".join(ln for ln in raw.splitlines() if ln and not ln.startswith("#"))[:500]
+        lines.append(f"\n<pre>{esc(snippet)}</pre>")
 
-    lines.append("\n<i>Глобальные метрики relay; per-user — если есть лейблы в экспорте.</i>")
+    lines.append("\n<i>Счётчики tproxy-server (глобальные).</i>")
     return "\n".join(lines)
 
 

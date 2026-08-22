@@ -14,14 +14,18 @@ BACKEND="${TWPR_BACKEND:-127.0.0.1:2398}"
 SITE_DIR="${TWPR_SITE_DIR:-/srv/tproxy-site}"
 CFG_DIR="${TWPR_CFG_DIR:-/etc/tproxy-server}"
 HOST_PROFILES="${TWPR_HOST_PROFILES:-/run/twpr/profiles.json}"
+# В Docker admin должен слушать 0.0.0.0 — иначе publish 127.0.0.1:8081:8081 с хоста не достучится
+# (процесс на loopback внутри netns). Снаружи всё равно только 127.0.0.1 благодаря ports:.
+ADMIN_LISTEN="${TWPR_ADMIN_LISTEN:-127.0.0.1:8081}"
+LISTEN="${TWPR_LISTEN:-127.0.0.1:8080}"
 
 mkdir -p "$CFG_DIR"
 
 cat >"${CFG_DIR}/config.json" <<EOF
 {
   "public_hostname": "${HOSTNAME}",
-  "listen": "127.0.0.1:8080",
-  "admin_listen": "127.0.0.1:8081",
+  "listen": "${LISTEN}",
+  "admin_listen": "${ADMIN_LISTEN}",
   "public_dir": "${SITE_DIR}",
   "profiles_file": "${CFG_DIR}/profiles.json",
   "enable_pprof": false,

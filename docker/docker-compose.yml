@@ -49,6 +49,9 @@ services:
       TWPR_SITE_DIR: /srv/tproxy-site
       TWPR_CFG_DIR: /etc/tproxy-server
       TWPR_HOST_PROFILES: /run/twpr/profiles.json
+      # 0.0.0.0 внутри netns + publish только 127.0.0.1:8081 на хосте
+      TWPR_ADMIN_LISTEN: 0.0.0.0:8081
+      TWPR_LISTEN: 127.0.0.1:8080
     volumes:
       - ../site:/srv/tproxy-site:ro
       - relay_cfg:/etc/tproxy-server
