@@ -56,21 +56,34 @@ jobs:
             -o "$GITHUB_WORKSPACE/tproxy-server-linux-amd64" ./cmd/tproxy-server)
           chmod +x tproxy-server-linux-amd64
 
-      - name: Build mtproto-proxy
+      - name: Build mtproto-proxy (debian bookworm = runtime glibc)
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential libssl-dev zlib1g-dev curl
-          curl -fsSL -o /tmp/MTProxy.tar.gz \
-            "https://github.com/TelegramMessenger/MTProxy/archive/${MTPROXY_COMMIT}.tar.gz"
-          echo "${MTPROXY_SHA256}  /tmp/MTProxy.tar.gz" | sha256sum -c -
-          mkdir -p /tmp/mtbuild
-          tar -C /tmp/mtbuild --strip-components=1 -xzf /tmp/MTProxy.tar.gz
-          make -C /tmp/mtbuild -j"$(nproc)"
-          cp /tmp/mtbuild/objs/bin/mtproto-proxy "$GITHUB_WORKSPACE/mtproto-proxy-linux-amd64"
-          chmod +x mtproto-proxy-linux-amd64
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/out" \
+            -e MTPROXY_COMMIT="$MTPROXY_COMMIT" \
+            -e MTPROXY_SHA256="$MTPROXY_SHA256" \
+            debian:bookworm-slim \
+            bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y -qq ca-certificates curl build-essential libssl-dev zlib1g-dev
+              curl -fsSL -o /tmp/MTProxy.tar.gz \
+                "https://github.com/TelegramMessenger/MTProxy/archive/${MTPROXY_COMMIT}.tar.gz"
+              echo "${MTPROXY_SHA256}  /tmp/MTProxy.tar.gz" | sha256sum -c -
+              mkdir -p /build
+              tar -C /build --strip-components=1 -xzf /tmp/MTProxy.tar.gz
+              make -C /build -j"$(nproc)"
+              cp /build/objs/bin/mtproto-proxy /out/mtproto-proxy-linux-amd64
+              chmod 755 /out/mtproto-proxy-linux-amd64
+            '
           curl -fsSL -o proxy-secret https://core.telegram.org/getProxySecret
           curl -fsSL -o proxy-multi.conf https://core.telegram.org/getProxyConfig
+          # sanity: binary links against bookworm glibc (no GLIBC_2.38+)
+          docker run --rm -v "$GITHUB_WORKSPACE:/b:ro" debian:bookworm-slim \
+            /b/mtproto-proxy-linux-amd64 -h >/dev/null 2>&1 \
+            || docker run --rm -v "$GITHUB_WORKSPACE:/b:ro" debian:bookworm-slim \
+                 bash -c "ldd /b/mtproto-proxy-linux-amd64 | head"
 
       - uses: actions/upload-artifact@v4
         with:

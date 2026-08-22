@@ -3,7 +3,8 @@ set -eu
 
 HOSTNAME="${TWPR_HOSTNAME:?TWPR_HOSTNAME required}"
 SECRET="${TWPR_SECRET:?TWPR_SECRET required}"
-BACKEND="${TWPR_BACKEND:-mtproxy:2398}"
+# tproxy-server принимает ТОЛЬКО numeric loopback — mtproxy в том же netns
+BACKEND="${TWPR_BACKEND:-127.0.0.1:2398}"
 SITE_DIR="${TWPR_SITE_DIR:-/srv/tproxy-site}"
 CFG_DIR="${TWPR_CFG_DIR:-/etc/tproxy-server}"
 
@@ -12,8 +13,8 @@ mkdir -p "$CFG_DIR"
 cat >"${CFG_DIR}/config.json" <<EOF
 {
   "public_hostname": "${HOSTNAME}",
-  "listen": "0.0.0.0:8080",
-  "admin_listen": "0.0.0.0:8081",
+  "listen": "127.0.0.1:8080",
+  "admin_listen": "127.0.0.1:8081",
   "public_dir": "${SITE_DIR}",
   "profiles_file": "${CFG_DIR}/profiles.json",
   "enable_pprof": false,
@@ -54,7 +55,6 @@ cat >"${CFG_DIR}/config.json" <<EOF
 }
 EOF
 
-# strip optional dd prefix for profile secret field
 SECRET_HEX="$SECRET"
 case "$SECRET_HEX" in
   dd????????????????????????????????) SECRET_HEX="${SECRET_HEX#dd}" ;;
@@ -73,6 +73,7 @@ cat >"${CFG_DIR}/profiles.json" <<EOF
 }
 EOF
 
+# upstream требует, чтобы profiles не были readable by group/other
 chmod 600 "${CFG_DIR}/profiles.json" "${CFG_DIR}/config.json" 2>/dev/null || true
 
 exec /usr/local/bin/tproxy-server \

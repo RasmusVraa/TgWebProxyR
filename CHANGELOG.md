@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.3 — 2026-08-22
+
+- Docker: mtproxy/relay/caddy в одном network namespace (tproxy требует loopback)
+- Docker: mtproto-proxy собирается в debian bookworm (фикс GLIBC_2.38)
+
 ## 1.4.2 — 2026-08-22
 
 - Docker: бинарники в Releases — сборка на VPS = только download

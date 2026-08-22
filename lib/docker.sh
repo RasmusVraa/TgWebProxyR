@@ -212,6 +212,9 @@ TWPR_docker_install_engine() {
   TWPR_docker_write_env
   TWPR_save_state
 
+  TWPR_info "Собираю и поднимаю контейнеры…"
+  # сбросить старые контейнеры с другой схемой сети
+  TWPR_docker_compose down --remove-orphans 2>/dev/null || true
   TWPR_docker_up || {
     TWPR_err "Не удалось поднять стек. Лог pull: /tmp/tgwebproxyr-docker-pull.log"
     TWPR_docker_compose logs --tail=80 || true

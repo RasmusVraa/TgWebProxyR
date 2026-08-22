@@ -1,24 +1,28 @@
 # TgWebProxyR — Docker Compose
-# По умолчанию: готовые образы GHCR (быстро). Сборка: TWPR_DOCKER_BUILD=1
+#
+# tproxy-server требует numeric loopback для listen И backend.
+# Поэтому mtproxy + relay + caddy делят один network namespace (localhost общий).
 
 services:
-  caddy:
-    image: ${TWPR_CADDY_IMAGE:-caddy:2.8-alpine}
+  # «якорный» контейнер: публичные порты + общий localhost для остальных
+  mtproxy:
+    image: ${TWPR_MTPROXY_IMAGE:-ghcr.io/rasmusvraa/tgwebproxyr-mtproxy}:${TWPR_IMAGE_TAG:-latest}
     pull_policy: missing
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mtproxy
+      args:
+        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.3}
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
     environment:
-      ACME_EMAIL: ${TWPR_EMAIL}
-      TPROXY_HOSTNAME: ${TWPR_HOSTNAME}
+      MTPROXY_SECRET: ${TWPR_SECRET}
+      MTPROXY_WORKERS: ${MTPROXY_WORKERS:-1}
+      MTPROXY_MAX_CONNECTIONS: ${MTPROXY_MAX_CONNECTIONS:-4096}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      relay:
-        condition: service_healthy
+      - mtproxy_data:/etc/mtproxy
     networks:
       - twpr
 
@@ -29,52 +33,42 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.relay
       args:
-        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.2}
-        TPROXY_REF: ${TPROXY_REF:-master}
+        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.3}
     restart: unless-stopped
+    network_mode: "service:mtproxy"
     environment:
       TWPR_HOSTNAME: ${TWPR_HOSTNAME}
       TWPR_SECRET: ${TWPR_SECRET}
-      TWPR_BACKEND: mtproxy:2398
+      TWPR_BACKEND: 127.0.0.1:2398
       TWPR_SITE_DIR: /srv/tproxy-site
       TWPR_CFG_DIR: /etc/tproxy-server
     volumes:
       - ../site:/srv/tproxy-site:ro
       - relay_cfg:/etc/tproxy-server
-    expose:
-      - "8080"
-      - "8081"
     depends_on:
       - mtproxy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/healthz"]
       interval: 10s
       timeout: 3s
-      retries: 12
-      start_period: 15s
-    networks:
-      - twpr
+      retries: 18
+      start_period: 25s
 
-  mtproxy:
-    image: ${TWPR_MTPROXY_IMAGE:-ghcr.io/rasmusvraa/tgwebproxyr-mtproxy}:${TWPR_IMAGE_TAG:-latest}
+  caddy:
+    image: ${TWPR_CADDY_IMAGE:-caddy:2.8-alpine}
     pull_policy: missing
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.mtproxy
-      args:
-        TWPR_VERSION: ${TWPR_IMAGE_TAG:-1.4.2}
     restart: unless-stopped
+    network_mode: "service:mtproxy"
     environment:
-      MTPROXY_SECRET: ${TWPR_SECRET}
-      MTPROXY_WORKERS: ${MTPROXY_WORKERS:-1}
-      MTPROXY_MAX_CONNECTIONS: ${MTPROXY_MAX_CONNECTIONS:-4096}
+      ACME_EMAIL: ${TWPR_EMAIL}
+      TPROXY_HOSTNAME: ${TWPR_HOSTNAME}
     volumes:
-      - mtproxy_data:/etc/mtproxy
-    expose:
-      - "2398"
-      - "8888"
-    networks:
-      - twpr
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      relay:
+        condition: service_healthy
 
   bot:
     profiles: ["bot"]
@@ -91,10 +85,10 @@ services:
       TWPR_SECRET: ${TWPR_SECRET}
     volumes:
       - ../bot:/app:ro
+    network_mode: "service:mtproxy"
     depends_on:
-      - relay
-    networks:
-      - twpr
+      relay:
+        condition: service_healthy
 
 networks:
   twpr:
