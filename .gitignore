@@ -1,0 +1,8 @@
+_ref_install.sh
+*.log
+*.tmp
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
