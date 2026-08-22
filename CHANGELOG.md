@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 — 2026-08-22
+
+- Фикс bot setup: admin id больше не портится (UI ушёл в stderr)
+- Unit `tgwebproxyr-bot.service` всегда пишется при setup (больше не `service missing`)
+- `EnvironmentFile=bot.env`, понятнее статус admin/service
+
 ## 1.6.0 — 2026-08-22
 
 - CLI в духе ProxyL / MTProxyL: вложенные меню, `start|stop|restart`, secrets, настройки

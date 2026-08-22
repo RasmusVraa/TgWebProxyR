@@ -157,14 +157,22 @@ TWPR_ensure_deps() {
 
 TWPR_service_state() {
   local unit="$1"
+  [[ "$unit" == *.service ]] || unit="${unit}.service"
+  if [[ ! -f "/etc/systemd/system/${unit}" ]] \
+     && [[ ! -f "/lib/systemd/system/${unit}" ]] \
+     && [[ ! -f "/usr/lib/systemd/system/${unit}" ]]; then
+    # unit-файл может быть в другом месте — спросим systemd
+    if ! systemctl cat "$unit" &>/dev/null; then
+      echo "missing"
+      return
+    fi
+  fi
   if systemctl is-active --quiet "$unit" 2>/dev/null; then
     echo "active"
-  elif systemctl list-unit-files "$unit" &>/dev/null && systemctl is-enabled --quiet "$unit" 2>/dev/null; then
-    echo "inactive"
-  elif systemctl status "$unit" &>/dev/null; then
+  elif systemctl is-enabled --quiet "$unit" 2>/dev/null; then
     echo "inactive"
   else
-    echo "missing"
+    echo "inactive"
   fi
 }
 

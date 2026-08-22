@@ -9,10 +9,10 @@ User=root
 WorkingDirectory=/opt/tgwebproxyr/bot
 Environment=TWPR_STATE_DIR=/etc/tgwebproxyr
 Environment=TWPR_BACKUP_DIR=/opt/tgwebproxyr/backups
+EnvironmentFile=-/etc/tgwebproxyr/bot.env
 ExecStart=/usr/bin/python3 /opt/tgwebproxyr/bot/twpr_bot.py
 Restart=on-failure
 RestartSec=5s
-NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
