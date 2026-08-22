@@ -368,49 +368,178 @@ def logs_kb() -> dict[str, Any]:
 
 def text_traffic() -> str:
     users = load_profiles()
-    lines = [f"<b>Трафик</b>\n", f"Профилей: <b>{len(users)}</b>", f"default: <code>{'есть' if secret_default() else 'нет'}</code>"]
+    lines = [
+        "<b>Трафик</b>\n",
+        f"Профилей: <b>{len(users)}</b>",
+        f"default: <code>{'есть' if secret_default() else 'нет'}</code>",
+    ]
     return "\n".join(lines)
 
 
-def text_backups() -> str:
+AUTOBACKUP_ENV = STATE_DIR / "autobackup.env"
+
+
+def load_autobackup() -> dict[str, str]:
+    d = {"TWPR_AUTOBACKUP": "off", "TWPR_AUTOBACKUP_SEND": "1", "TWPR_AUTOBACKUP_KEEP": "12"}
+    d.update(load_dotenv(AUTOBACKUP_ENV))
+    return d
+
+
+def save_autobackup(data: dict[str, str], apply_timer: bool = True) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    AUTOBACKUP_ENV.write_text(
+        f"TWPR_AUTOBACKUP={data.get('TWPR_AUTOBACKUP', 'off')}\n"
+        f"TWPR_AUTOBACKUP_SEND={data.get('TWPR_AUTOBACKUP_SEND', '1')}\n"
+        f"TWPR_AUTOBACKUP_KEEP={data.get('TWPR_AUTOBACKUP_KEEP', '12')}\n",
+        encoding="utf-8",
+    )
+    os.chmod(AUTOBACKUP_ENV, 0o600)
+    if apply_timer:
+        period = data.get("TWPR_AUTOBACKUP", "off")
+        sh(["/opt/tgwebproxyr/tgwebproxyr.sh", "backup", "auto", period], timeout=20)
+    else:
+        # только флаг send — пересохранить через CLI send
+        send = data.get("TWPR_AUTOBACKUP_SEND", "1")
+        sh(
+            ["/opt/tgwebproxyr/tgwebproxyr.sh", "backup", "auto", "send", "on" if send == "1" else "off"],
+            timeout=15,
+        )
+
+
+def list_backup_files() -> list[Path]:
     if not BACKUP_DIR.is_dir():
-        return "<b>Бэкапы</b>\n\nПусто."
-    items = sorted([p for p in BACKUP_DIR.iterdir() if p.is_dir()], reverse=True)[:12]
+        return []
+    return sorted(BACKUP_DIR.glob("twpr-*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def text_backups() -> tuple[str, dict[str, Any]]:
+    auto = load_autobackup()
+    items = list_backup_files()[:10]
+    period = auto.get("TWPR_AUTOBACKUP", "off")
+    send = auto.get("TWPR_AUTOBACKUP_SEND", "1")
+    lines = [
+        "<b>Бэкапы</b>\n",
+        f"Авто: <b>{esc(period)}</b> · в TG: <b>{'да' if send == '1' else 'нет'}</b>\n",
+    ]
     if not items:
-        return "<b>Бэкапы</b>\n\nПусто."
-    return "<b>Бэкапы</b>\n\n" + "\n".join(f"• <code>{esc(p.name)}</code>" for p in items)
+        lines.append("Архивов пока нет.")
+    else:
+        for p in items:
+            kb_size = p.stat().st_size // 1024
+            lines.append(f"• <code>{esc(p.name)}</code> · {kb_size}K")
+
+    rows: list[list[tuple[str, str]]] = [
+        [("🆕 Создать", "b:create"), ("⚙️ Авто", "b:auto")],
+    ]
+    # кнопки восстановления — по одному на архив (короткое имя)
+    for i, p in enumerate(items[:6]):
+        rows.append([(f"♻️ {p.name.replace('twpr-', '')[:22]}", f"b:ask:{i}")])
+    rows.append([("⬅️ Меню", "m:root")])
+    return "\n".join(lines), kb(rows)
 
 
-def backups_kb() -> dict[str, Any]:
-    return kb([[("🆕 Создать", "b:create")], [("⬅️ Меню", "m:root")]])
+def text_autobackup() -> tuple[str, dict[str, Any]]:
+    auto = load_autobackup()
+    period = auto.get("TWPR_AUTOBACKUP", "off")
+    send = auto.get("TWPR_AUTOBACKUP_SEND", "1")
+    body = (
+        f"<b>Автобэкап</b>\n\n"
+        f"Сейчас: <b>{esc(period)}</b>\n"
+        f"Отправка файла админу: <b>{'вкл' if send == '1' else 'выкл'}</b>\n\n"
+        f"При создании архив уходит в этот чат документом."
+    )
+    rows = [
+        [("hourly", "b:auto:hourly"), ("daily", "b:auto:daily")],
+        [("monthly", "b:auto:monthly"), ("off", "b:auto:off")],
+        [("📤 TG " + ("выкл" if send == "1" else "вкл"), "b:auto:tg")],
+        [("⬅️ К бэкапам", "m:backups")],
+    ]
+    return body, kb(rows)
 
 
 def text_settings() -> str:
     tok = TOKEN
     masked = (tok[:6] + "…" + tok[-4:]) if len(tok) > 12 else "—"
+    auto = load_autobackup()
     return (
         f"<b>Настройки</b>\n\n"
         f"Token: <code>{esc(masked)}</code>\n"
         f"Admin: <code>{esc(CFG.get('ALLOWED_CHAT_IDS', ''))}</code>\n"
         f"Hostname: <code>{esc(hostname())}</code>\n"
-        f"Профиль default: <code>{'✓' if secret_default() else '—'}</code>\n"
+        f"default: <code>{'✓' if secret_default() else '—'}</code>\n"
+        f"Автобэкап: <code>{esc(auto.get('TWPR_AUTOBACKUP', 'off'))}</code>\n"
         f"<code>{esc(BOT_ENV)}</code>"
     )
 
 
 def do_backup() -> str:
+    """Создаёт tar.gz через CLI (с отправкой в TG)."""
+    out = sh(["/opt/tgwebproxyr/tgwebproxyr.sh", "backup", "create", "--quiet"], timeout=90)
+    # последняя непустая строка — путь
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    path = lines[-1] if lines else ""
+    if path.startswith("/") and Path(path).is_file():
+        return path
+    # fallback локально
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     dest = BACKUP_DIR / f"twpr-{stamp}"
     dest.mkdir(parents=True)
-    for src in (SETTINGS, BOT_ENV, REGISTRY, DOCKER_DIR / ".env"):
+    for src in (SETTINGS, BOT_ENV, REGISTRY, AUTOBACKUP_ENV, DOCKER_DIR / ".env"):
         if src.is_file():
             shutil.copy2(src, dest / src.name)
     (dest / "meta.json").write_text(
         json.dumps({"created_at": stamp, "hostname": hostname()}, indent=2) + "\n",
         encoding="utf-8",
     )
-    return str(dest)
+    archive = BACKUP_DIR / f"twpr-{stamp}.tar.gz"
+    sh(["tar", "-czf", str(archive), "-C", str(BACKUP_DIR), dest.name], timeout=30)
+    shutil.rmtree(dest, ignore_errors=True)
+    send_backup_document(archive)
+    return str(archive)
+
+
+def send_backup_document(archive: Path) -> None:
+    if not archive.is_file() or not TOKEN:
+        return
+    for chat in ALLOWED:
+        try:
+            url = API.format(token=TOKEN, method="sendDocument")
+            boundary = "----twpr" + pysecrets.token_hex(8)
+            caption = f"💾 TgWebProxyR backup · {hostname()} · {archive.name}"
+            body = bytearray()
+            body.extend(
+                (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="chat_id"\r\n\r\n'
+                    f"{chat}\r\n"
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="caption"\r\n\r\n'
+                    f"{caption}\r\n"
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="document"; filename="{archive.name}"\r\n'
+                    f"Content-Type: application/gzip\r\n\r\n"
+                ).encode()
+            )
+            body.extend(archive.read_bytes())
+            body.extend(f"\r\n--{boundary}--\r\n".encode())
+            req = urllib.request.Request(
+                url,
+                data=bytes(body),
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=90)
+        except Exception as e:
+            print(f"sendDocument: {e}", flush=True)
+
+
+def do_restore(name: str) -> str:
+    out = sh(
+        ["/opt/tgwebproxyr/tgwebproxyr.sh", "backup", "restore", name, "--yes"],
+        timeout=120,
+    )
+    return out[-1500:] if out else "ok"
 
 
 def proxy_action(action: str) -> str:
@@ -594,16 +723,80 @@ def handle_callback(cq: dict[str, Any]) -> None:
         return
 
     if data == "m:backups":
-        show(chat, mid, text_backups(), backups_kb())
+        body, markup = text_backups()
+        show(chat, mid, body, markup)
         return
 
     if data == "b:create":
+        show(chat, mid, "⏳ Собираю архив…", back_kb("m:backups"))
         path = do_backup()
-        show(chat, mid, f"<b>Бэкап</b>\n<code>{esc(path)}</code>", backups_kb())
+        body, markup = text_backups()
+        show(
+            chat,
+            mid,
+            f"✅ Бэкап готов\n<code>{esc(Path(path).name if path else path)}</code>\n"
+            f"<i>Файл отправлен в этот чат (если включена отправка).</i>\n\n{body}",
+            markup,
+        )
+        return
+
+    if data == "b:auto":
+        body, markup = text_autobackup()
+        show(chat, mid, body, markup)
+        return
+
+    if data.startswith("b:auto:"):
+        action = data.split(":")[-1]
+        auto = load_autobackup()
+        if action in ("hourly", "daily", "monthly", "off"):
+            auto["TWPR_AUTOBACKUP"] = action
+            save_autobackup(auto)
+        elif action == "tg":
+            cur = auto.get("TWPR_AUTOBACKUP_SEND", "1")
+            auto["TWPR_AUTOBACKUP_SEND"] = "0" if cur == "1" else "1"
+            save_autobackup(auto, apply_timer=False)
+        body, markup = text_autobackup()
+        show(chat, mid, body, markup)
+        return
+
+    if data.startswith("b:ask:"):
+        idx = int(data.split(":")[-1])
+        items = list_backup_files()
+        if idx < 0 or idx >= len(items):
+            body, markup = text_backups()
+            show(chat, mid, "Архив не найден.\n\n" + body, markup)
+            return
+        name = items[idx].name
+        show(
+            chat,
+            mid,
+            f"<b>Восстановить</b>\n<code>{esc(name)}</code>\n\n"
+            f"Текущие настройки будут перезаписаны.",
+            kb([[("✅ Да, восстановить", f"b:restore:{idx}"), ("❌ Отмена", "m:backups")]]),
+        )
+        return
+
+    if data.startswith("b:restore:"):
+        idx = int(data.split(":")[-1])
+        items = list_backup_files()
+        if idx < 0 or idx >= len(items):
+            body, markup = text_backups()
+            show(chat, mid, "Архив не найден.\n\n" + body, markup)
+            return
+        name = items[idx].name
+        show(chat, mid, f"⏳ Восстанавливаю <code>{esc(name)}</code>…", back_kb("m:backups"))
+        out = do_restore(name)
+        body, markup = text_backups()
+        show(
+            chat,
+            mid,
+            f"✅ Восстановлено из <code>{esc(name)}</code>\n<pre>{esc(out[-800:])}</pre>\n\n{body}",
+            markup,
+        )
         return
 
     if data == "m:settings":
-        show(chat, mid, text_settings(), back_kb())
+        show(chat, mid, text_settings(), kb([[("💾 Автобэкап", "b:auto"), ("⬅️ Меню", "m:root")]]))
         return
 
 
@@ -629,6 +822,7 @@ def handle_message(msg: dict[str, Any]) -> None:
         "/users": (lambda: text_users_page(0)[0], lambda: text_users_page(0)[1]),
         "/links": (lambda: text_links_page(0)[0], lambda: text_links_page(0)[1]),
         "/logs": (text_logs, logs_kb),
+        "/backups": (lambda: text_backups()[0], lambda: text_backups()[1]),
         "/help": (
             lambda: "Команды: /menu /status /proxy /users /links /logs /backups",
             main_menu_kb,
@@ -666,6 +860,7 @@ def main() -> None:
                     {"command": "users", "description": "Пользователи"},
                     {"command": "links", "description": "Ссылки"},
                     {"command": "logs", "description": "Логи"},
+                    {"command": "backups", "description": "Бэкапы и автобэкап"},
                 ]
             },
             timeout=8,

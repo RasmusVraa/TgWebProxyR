@@ -63,7 +63,7 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
 
   ${C_BOLD}Прочее${C_RESET}
   tgwebproxyr bot …           setup|update|menu|…
-  tgwebproxyr backup …        create|list|restore
+  tgwebproxyr backup …        create|list|restore|auto
   tgwebproxyr docker …        setup|up|down|logs|pull
   tgwebproxyr update
   tgwebproxyr uninstall

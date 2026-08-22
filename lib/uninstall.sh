@@ -16,8 +16,8 @@ TWPR_cmd_uninstall() {
     (cd "${TWPR_ROOT}/docker" && docker compose --env-file .env down -v 2>/dev/null) || true
   fi
 
-  systemctl stop caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
-  systemctl disable caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
+  systemctl stop caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot tgwebproxyr-autobackup.timer 2>/dev/null || true
+  systemctl disable caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot tgwebproxyr-autobackup.timer 2>/dev/null || true
 
   rm -f /etc/systemd/system/caddy.service \
         /etc/systemd/system/tproxy-server.service \
@@ -25,7 +25,9 @@ TWPR_cmd_uninstall() {
         /etc/systemd/system/tproxy-firewall.service \
         /etc/systemd/system/refresh-mtproxy-config.service \
         /etc/systemd/system/refresh-mtproxy-config.timer \
-        /etc/systemd/system/tgwebproxyr-bot.service
+        /etc/systemd/system/tgwebproxyr-bot.service \
+        /etc/systemd/system/tgwebproxyr-autobackup.service \
+        /etc/systemd/system/tgwebproxyr-autobackup.timer
   systemctl daemon-reload 2>/dev/null || true
 
   rm -f /usr/local/bin/tproxy-server /usr/local/bin/tgwebproxyr /usr/local/bin/webproxyl

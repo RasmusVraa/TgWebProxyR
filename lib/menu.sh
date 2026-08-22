@@ -202,9 +202,10 @@ TWPR_menu_ops() {
     echo -e "  ${C_BOLD}Обновление и бэкапы${C_RESET}"
     echo ""
     echo -e "  ${C_BOLD}1${C_RESET})  Обновить стек / образы"
-    echo -e "  ${C_BOLD}2${C_RESET})  Создать бэкап"
+    echo -e "  ${C_BOLD}2${C_RESET})  Создать бэкап ${C_DIM}(+ отправка админу)${C_RESET}"
     echo -e "  ${C_BOLD}3${C_RESET})  Список бэкапов"
     echo -e "  ${C_BOLD}4${C_RESET})  Восстановить бэкап"
+    echo -e "  ${C_BOLD}5${C_RESET})  Автобэкап ${C_DIM}hourly/daily/monthly${C_RESET}"
     echo -e "  ${C_BOLD}0${C_RESET})  Назад"
     echo ""
     local choice="" name=""
@@ -215,8 +216,21 @@ TWPR_menu_ops() {
       3) TWPR_backup_list; TWPR_pause ;;
       4)
         TWPR_backup_list
-        TWPR_ask name "Имя каталога бэкапа"
+        TWPR_ask name "Имя файла (twpr-….tar.gz)"
         TWPR_backup_restore "$name"
+        TWPR_pause
+        ;;
+      5)
+        TWPR_cmd_autobackup status
+        echo ""
+        echo -e "  ${C_BOLD}1${C_RESET}) hourly  ${C_BOLD}2${C_RESET}) daily  ${C_BOLD}3${C_RESET}) monthly  ${C_BOLD}4${C_RESET}) off"
+        TWPR_ask choice "Период" "2"
+        case "$choice" in
+          1) TWPR_cmd_autobackup hourly ;;
+          2) TWPR_cmd_autobackup daily ;;
+          3) TWPR_cmd_autobackup monthly ;;
+          4) TWPR_cmd_autobackup off ;;
+        esac
         TWPR_pause
         ;;
       0|*) return 0 ;;
