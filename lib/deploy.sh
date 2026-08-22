@@ -3,6 +3,21 @@
 
 TWPR_TOTAL_STEPS=9
 
+TWPR_patch_upstream_install() {
+  local inst="${TWPR_ENGINE_DIR}/deploy/install.sh"
+  [[ -f "$inst" ]] || return 0
+
+  # Upstream aborts on flaky: TestLoadAcceptsSystemdCredentialReadPermissions
+  if grep -qE 'test \./\.\.\.' "$inst"; then
+    if ! grep -q 'TWPR: skip go test' "$inst"; then
+      TWPR_info "Патчу upstream install.sh: пропускаю go test (flake на части VPS)"
+      sed -i -E \
+        's|\(cd "\$repository" && "\$go_binary" test \./\.\.\.\)|echo "TWPR: skip go test"; true|g' \
+        "$inst"
+    fi
+  fi
+}
+
 TWPR_fetch_engine() {
   TWPR_ensure_deps
   mkdir -p "$(dirname "$TWPR_ENGINE_DIR")"
@@ -17,6 +32,7 @@ TWPR_fetch_engine() {
     git clone --depth 1 --branch "$TWPR_ENGINE_REF" "$TWPR_ENGINE_REPO" "$TWPR_ENGINE_DIR"
   fi
   chmod +x "${TWPR_ENGINE_DIR}/deploy/"*.sh 2>/dev/null || true
+  TWPR_patch_upstream_install
 }
 
 TWPR_prepare_site() {
@@ -55,7 +71,9 @@ TWPR_run_official_install() {
   )
   TWPR_info "Официальный install (Caddy + MTProxy + relay) — это займёт несколько минут…"
   TWPR_log "official install hostname=${TWPR_HOSTNAME}"
+  TWPR_patch_upstream_install
   (
+    umask 077
     cd "$TWPR_ENGINE_DIR"
     bash ./deploy/install.sh "${args[@]}"
   )
