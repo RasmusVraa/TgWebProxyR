@@ -73,7 +73,8 @@ cat >/etc/profile.d/tgwebproxyr.sh <<'EOF'
 alias tgwebproxyr='sudo tgwebproxyr'
 EOF
 
-# Convenient note in bootstrap about not piping
+VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
+echo ""
 echo "  OK  менеджер v${VERSION} → ${INSTALL_DIR}"
 echo "  OK  команда: tgwebproxyr"
 echo ""
