@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.7 — 2026-08-22
+
+- Фикс: новые пользователи — MTProxy получает **все** secrets через несколько `-S` (не только default)
+- `secret apply` пересоздаёт весь Docker-стек (mtproxy + relay), не только relay
+- Native: drop-in wrapper `twpr-mtproxy.sh` с мульти-secret
+
 ## 1.6.6 — 2026-08-22
 
 - Фикс: новые пользователи в Docker снова работают (profiles.json монтируется в relay)

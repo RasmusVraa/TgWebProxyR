@@ -29,6 +29,7 @@ TWPR_cmd_uninstall() {
         /etc/systemd/system/tgwebproxyr-api.service \
         /etc/systemd/system/tgwebproxyr-autobackup.service \
         /etc/systemd/system/tgwebproxyr-autobackup.timer
+  rm -rf /etc/systemd/system/mtproxy.service.d
   systemctl daemon-reload 2>/dev/null || true
 
   rm -f /usr/local/bin/tproxy-server /usr/local/bin/tgwebproxyr /usr/local/bin/webproxyl

@@ -32,20 +32,19 @@ Docker: admin проброшен на `127.0.0.1:8081`.
 
 ## Новый пользователь не коннектится (Docker)
 
-Старые установки не монтировали `profiles.json` в relay. Обновите и пересоздайте relay:
+Нужны **и** profiles в relay, **и** все секреты в MTProxy (`-S` на каждый).
 
 ```bash
 sudo tgwebproxyr update
 sudo tgwebproxyr secret apply
-# или:
-cd /opt/tgwebproxyr/docker && docker compose up -d --force-recreate --no-deps relay
+# смотрите в логах mtproxy строку: mtproxy -S count: N  (N = число пользователей)
+sudo tgwebproxyr docker logs mtproxy 80
+curl -fsS http://127.0.0.1:8081/metrics | head
 ```
 
-Если `/etc/tgwebproxyr/profiles.json` оказался **каталогом** (баг bind-mount без файла) — удалите каталог, затем:
+Если `/etc/tgwebproxyr/profiles.json` оказался **каталогом** (баг bind-mount без файла) — удалите каталог, затем `secret apply`.
 
-```bash
-sudo tgwebproxyr secret apply
-```
+Ошибка Desktop *«built-in web transport couldn't connect»* обычно значит: secret не принят relay/mtproxy или HTTPS/домен.
 
 ## Pull образов «завис»
 

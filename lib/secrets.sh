@@ -40,20 +40,22 @@ EOF
   fi
 }
 
-# Применить реестр к движку (native файл или restart docker relay)
+# Применить реестр к движку:
+# - Docker: все секреты в mtproxy (-S…) + profiles в relay
+# - Native: profiles.json + wrapper mtproxy со всеми -S
 TWPR_profiles_apply_engine() {
   TWPR_ensure_default_profile
   local backend="127.0.0.1:${TWPR_PORT_MTPROXY:-2398}"
 
   if TWPR_is_docker 2>/dev/null; then
-    # compose должен видеть файл до up
     [[ -f "$TWPR_REGISTRY" ]] || return 0
-    TWPR_info "Применяю профили к Docker relay…"
+    TWPR_info "Применяю профили к Docker (mtproxy -S + relay)…"
     # shellcheck disable=SC1091
     source "${TWPR_ROOT}/lib/docker.sh" 2>/dev/null || true
     if declare -F TWPR_docker_compose >/dev/null 2>&1; then
-      TWPR_docker_compose up -d --force-recreate --no-deps relay 2>/dev/null \
-        || TWPR_docker_compose restart relay 2>/dev/null || true
+      # mtproxy — якорь netns; после смены -S нужно пересоздать стек
+      TWPR_docker_compose up -d --force-recreate --remove-orphans 2>/dev/null \
+        || TWPR_docker_compose up -d --force-recreate 2>/dev/null || true
     fi
     return 0
   fi
@@ -71,7 +73,71 @@ TWPR_profiles_apply_engine() {
   else
     install -m 0400 "$TWPR_REGISTRY" "$TWPR_ENGINE_PROFILES"
   fi
+
+  TWPR_mtproxy_write_native_wrapper
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl restart mtproxy 2>/dev/null || true
   systemctl restart tproxy-server 2>/dev/null || true
+}
+
+# Native: mtproto-proxy с несколькими -S из реестра (shared backend)
+TWPR_mtproxy_write_native_wrapper() {
+  local wrap="/opt/tgwebproxyr/bin/twpr-mtproxy.sh"
+  local dropin_dir="/etc/systemd/system/mtproxy.service.d"
+  mkdir -p /opt/tgwebproxyr/bin "$dropin_dir"
+
+  cat >"$wrap" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+# shellcheck disable=SC1091
+[[ -f /etc/mtproxy/mtproxy.env ]] && source /etc/mtproxy/mtproxy.env
+REGISTRY="${TWPR_REGISTRY:-/etc/tgwebproxyr/profiles.json}"
+BIN="/opt/MTProxy/objs/bin/mtproto-proxy"
+WORKERS="${MTPROXY_WORKERS:-1}"
+MAXC="${MTPROXY_MAX_CONNECTIONS:-4096}"
+
+norm() {
+  local s="${1:-}"
+  case "$s" in
+    dd????????????????????????????????) s="${s#dd}" ;;
+  esac
+  s="$(echo "$s" | tr 'A-F' 'a-f')"
+  [[ "$s" =~ ^[0-9a-f]{32}$ ]] && echo "$s"
+}
+
+args=(-u mtproxy -p 8888 -H 2398)
+declare -A seen=()
+if [[ -f "$REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+  while IFS= read -r raw; do
+    ns="$(norm "$raw" || true)"
+    [[ -n "$ns" ]] || continue
+    [[ -n "${seen[$ns]:-}" ]] && continue
+    seen[$ns]=1
+    args+=(-S "$ns")
+  done < <(jq -r '.profiles[]?.secret // empty' "$REGISTRY")
+fi
+if [[ ${#seen[@]} -eq 0 ]] && [[ -n "${MTPROXY_SECRET:-}" ]]; then
+  ns="$(norm "$MTPROXY_SECRET" || true)"
+  [[ -n "$ns" ]] && args+=(-S "$ns")
+fi
+if [[ ${#args[@]} -le 4 ]]; then
+  echo "twpr-mtproxy: нет секретов" >&2
+  exit 1
+fi
+exec "$BIN" "${args[@]}" \
+  --aes-pwd /etc/mtproxy/proxy-secret \
+  /etc/mtproxy/proxy-multi.conf \
+  -M "$WORKERS" -C "$MAXC"
+EOF
+  chmod 755 "$wrap"
+
+  cat >"${dropin_dir}/twpr-multi-secret.conf" <<EOF
+[Service]
+# TgWebProxyR: несколько -S из /etc/tgwebproxyr/profiles.json
+ExecStart=
+ExecStart=${wrap}
+EOF
+  chmod 644 "${dropin_dir}/twpr-multi-secret.conf"
 }
 
 TWPR_registry_get_secret() {

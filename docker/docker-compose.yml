@@ -23,8 +23,12 @@ services:
       MTPROXY_SECRET: ${TWPR_SECRET}
       MTPROXY_WORKERS: ${MTPROXY_WORKERS:-1}
       MTPROXY_MAX_CONNECTIONS: ${MTPROXY_MAX_CONNECTIONS:-4096}
+      TWPR_HOST_PROFILES: /run/twpr/profiles.json
     volumes:
       - mtproxy_data:/etc/mtproxy
+      # все client secrets → несколько -S (shared backend)
+      - /etc/tgwebproxyr/profiles.json:/run/twpr/profiles.json:ro
+      - ./entrypoint-mtproxy.sh:/usr/local/bin/entrypoint-mtproxy.sh:ro
     networks:
       - twpr
 

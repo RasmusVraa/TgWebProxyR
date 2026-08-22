@@ -409,6 +409,7 @@ def text_traffic() -> str:
     ]
     if not raw:
         lines.append("\nМетрики недоступны (relay :8081).")
+        lines.append("<i>Проверьте: tgwebproxyr health · secret apply</i>")
         return "\n".join(lines)
 
     sessions = None
