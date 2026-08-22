@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# WebProxyL — secret / profile helpers
+# TgWebProxyR — secret / profile helpers
 
-WPL_PROFILES_FILE="${WPL_PROFILES_FILE:-/etc/tproxy-server/profiles.json}"
+TWPR_PROFILES_FILE="${TWPR_PROFILES_FILE:-/etc/tproxy-server/profiles.json}"
 
-wpl_cmd_secret_show() {
-  wpl_load_state
-  if [[ -z "${WPL_SECRET:-}" ]]; then
-    wpl_err "Secret не сохранён в WebProxyL state"
+TWPR_cmd_secret_show() {
+  TWPR_load_state
+  if [[ -z "${TWPR_SECRET:-}" ]]; then
+    TWPR_err "Secret не сохранён в TgWebProxyR state"
     return 1
   fi
-  echo "$WPL_SECRET"
+  echo "$TWPR_SECRET"
 }
 
-wpl_cmd_secret_rotate() {
-  wpl_require_root
-  wpl_load_state
+TWPR_cmd_secret_rotate() {
+  TWPR_require_root
+  TWPR_load_state
   local new_secret
-  new_secret="$(wpl_gen_secret)"
-  wpl_info "Новый secret: ${C_BOLD}${new_secret}${C_RESET}"
-  wpl_confirm "Записать его в profiles.json и перезапустить relay" "Y" || return 0
+  new_secret="$(TWPR_gen_secret)"
+  TWPR_info "Новый secret: ${C_BOLD}${new_secret}${C_RESET}"
+  TWPR_confirm "Записать его в profiles.json и перезапустить relay" "Y" || return 0
 
-  if [[ ! -f "$WPL_PROFILES_FILE" ]]; then
-    wpl_err "Не найден ${WPL_PROFILES_FILE}"
+  if [[ ! -f "$TWPR_PROFILES_FILE" ]]; then
+    TWPR_err "Не найден ${TWPR_PROFILES_FILE}"
     return 1
   fi
 
@@ -33,11 +33,11 @@ wpl_cmd_secret_rotate() {
       | if (.profiles | length) == 0 then
           {profiles:[{name:"default",secret:$s,backend:"127.0.0.1:2398",carrier_mode:"https"}]}
         else . end
-    ' "$WPL_PROFILES_FILE" >"$tmp"
-    install -m 0400 "$tmp" "$WPL_PROFILES_FILE"
+    ' "$TWPR_PROFILES_FILE" >"$tmp"
+    install -m 0400 "$tmp" "$TWPR_PROFILES_FILE"
     rm -f "$tmp"
   else
-    wpl_err "Нужен jq для ротации secret"
+    TWPR_err "Нужен jq для ротации secret"
     return 1
   fi
 
@@ -46,24 +46,24 @@ wpl_cmd_secret_rotate() {
     sed -i "s/^MTPROXY_SECRET=.*/MTPROXY_SECRET=${new_secret}/" /etc/mtproxy/mtproxy.env || true
   fi
 
-  WPL_SECRET="$new_secret"
-  wpl_save_state
+  TWPR_SECRET="$new_secret"
+  TWPR_save_state
   systemctl restart mtproxy tproxy-server
-  wpl_ok "Secret обновлён"
-  wpl_cmd_link
+  TWPR_ok "Secret обновлён"
+  TWPR_cmd_link
 }
 
-wpl_cmd_secret_add() {
-  wpl_require_root
-  wpl_load_state
+TWPR_cmd_secret_add() {
+  TWPR_require_root
+  TWPR_load_state
   local name secret backend
-  name="$(wpl_prompt "Имя профиля" "user$(date +%s | tail -c 5)")"
-  secret="$(wpl_gen_secret)"
-  backend="$(wpl_prompt "Backend loopback" "127.0.0.1:2398")"
-  wpl_info "Secret для ${name}: ${secret}"
+  name="$(TWPR_prompt "Имя профиля" "user$(date +%s | tail -c 5)")"
+  secret="$(TWPR_gen_secret)"
+  backend="$(TWPR_prompt "Backend loopback" "127.0.0.1:2398")"
+  TWPR_info "Secret для ${name}: ${secret}"
 
-  [[ -f "$WPL_PROFILES_FILE" ]] || {
-    wpl_err "Сначала выполните setup"
+  [[ -f "$TWPR_PROFILES_FILE" ]] || {
+    TWPR_err "Сначала выполните setup"
     return 1
   }
 
@@ -71,12 +71,12 @@ wpl_cmd_secret_add() {
   tmp="$(mktemp)"
   jq --arg n "$name" --arg s "$secret" --arg b "$backend" '
     .profiles += [{name:$n, secret:$s, backend:$b, carrier_mode:"https"}]
-  ' "$WPL_PROFILES_FILE" >"$tmp"
-  install -m 0400 "$tmp" "$WPL_PROFILES_FILE"
+  ' "$TWPR_PROFILES_FILE" >"$tmp"
+  install -m 0400 "$tmp" "$TWPR_PROFILES_FILE"
   rm -f "$tmp"
   systemctl restart tproxy-server
-  wpl_ok "Профиль ${name} добавлен"
-  echo "  $(wpl_tg_link "${WPL_HOSTNAME}" "$secret")"
-  echo "  $(wpl_web_link "${WPL_HOSTNAME}" "$secret")"
-  wpl_warn "Если backend общий — все профили делят один MTProxy. Для квот поднимите отдельный listener."
+  TWPR_ok "Профиль ${name} добавлен"
+  echo "  $(TWPR_tg_link "${TWPR_HOSTNAME}" "$secret")"
+  echo "  $(TWPR_web_link "${TWPR_HOSTNAME}" "$secret")"
+  TWPR_warn "Если backend общий — все профили делят один MTProxy. Для квот поднимите отдельный listener."
 }

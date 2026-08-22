@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WebProxyL — terminal colors and UI helpers
+# TgWebProxyR — terminal colors and UI helpers
 
 if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]] && [[ -z "${NO_COLOR:-}" ]]; then
   C_RESET=$'\033[0m'
@@ -19,26 +19,26 @@ else
   C_BLUE= C_CYAN= C_MAGENTA= C_WHITE= C_GRAY= C_ACCENT=
 fi
 
-wpl_banner() {
+TWPR_banner() {
   echo ""
   echo -e "${C_ACCENT}${C_BOLD}"
   cat <<'EOF'
    ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-   ┃          W e b P r o x y L               ┃
+   ┃         T g W e b P r o x y R            ┃
    ┃   Telegram WEB Proxy · one-click setup   ┃
    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 EOF
-  echo -e "${C_RESET}${C_DIM}   engine: telegramdesktop/tproxy-server · manager v${WPL_VERSION:-?}${C_RESET}"
+  echo -e "${C_RESET}${C_DIM}   engine: telegramdesktop/tproxy-server · manager v${TWPR_VERSION:-?}${C_RESET}"
   echo ""
 }
 
-wpl_ok()   { echo -e "  ${C_GREEN}✓${C_RESET} $*"; }
-wpl_info() { echo -e "  ${C_CYAN}•${C_RESET} $*"; }
-wpl_warn() { echo -e "  ${C_YELLOW}!${C_RESET} $*"; }
-wpl_err()  { echo -e "  ${C_RED}✗${C_RESET} $*" >&2; }
-wpl_sec()  { echo -e "\n  ${C_BOLD}${C_ACCENT}$*${C_RESET}\n  ${C_GRAY}$(printf '─%.0s' {1..42})${C_RESET}"; }
+TWPR_ok()   { echo -e "  ${C_GREEN}✓${C_RESET} $*"; }
+TWPR_info() { echo -e "  ${C_CYAN}•${C_RESET} $*"; }
+TWPR_warn() { echo -e "  ${C_YELLOW}!${C_RESET} $*"; }
+TWPR_err()  { echo -e "  ${C_RED}✗${C_RESET} $*" >&2; }
+TWPR_sec()  { echo -e "\n  ${C_BOLD}${C_ACCENT}$*${C_RESET}\n  ${C_GRAY}$(printf '─%.0s' {1..42})${C_RESET}"; }
 
-wpl_prompt() {
+TWPR_prompt() {
   local prompt="$1" default="${2:-}" reply
   if [[ -n "$default" ]]; then
     read -r -p "  ${prompt} [${default}]: " reply || true
@@ -49,20 +49,20 @@ wpl_prompt() {
   fi
 }
 
-wpl_prompt_secret() {
+TWPR_prompt_secret() {
   local prompt="$1" reply
   read -r -s -p "  ${prompt}: " reply || true
   echo "" >&2
   echo "$reply"
 }
 
-wpl_confirm() {
+TWPR_confirm() {
   local prompt="$1" default="${2:-Y}" reply
   read -r -p "  ${prompt} [${default}/n]: " reply || true
   reply="${reply:-$default}"
   [[ "$reply" =~ ^[Yy]$ ]]
 }
 
-wpl_pause() {
+TWPR_pause() {
   read -r -p "  ${C_DIM}Enter — продолжить${C_RESET} " _ || true
 }

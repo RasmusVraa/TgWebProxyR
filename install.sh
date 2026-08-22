@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# WebProxyL — bootstrap installer
+# TgWebProxyR — bootstrap installer
 #
 # One-liner:
-#   wget -qO /tmp/webproxyl-install.sh https://raw.githubusercontent.com/RasmusVraa/WebProxyL/main/install.sh && sudo bash /tmp/webproxyl-install.sh
+#   wget -qO /tmp/tgwebproxyr-install.sh https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh && sudo bash /tmp/tgwebproxyr-install.sh
 #
 # Or:
-#   curl -fsSL https://raw.githubusercontent.com/RasmusVraa/WebProxyL/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh | sudo bash
 set -euo pipefail
 
-REPO="${WPL_GITHUB_REPO:-RasmusVraa/WebProxyL}"
-BRANCH="${WPL_BRANCH:-main}"
-INSTALL_DIR="/opt/webproxyl"
+REPO="${TWPR_GITHUB_REPO:-RasmusVraa/TgWebProxyR}"
+BRANCH="${TWPR_BRANCH:-main}"
+INSTALL_DIR="/opt/tgwebproxyr"
 SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 ARCHIVE_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
-INSTALL_LOG="/tmp/webproxyl-bootstrap.log"
+INSTALL_LOG="/tmp/tgwebproxyr-bootstrap.log"
 
 : >"$INSTALL_LOG"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Запустите от root:" >&2
-  echo "  wget -qO /tmp/webproxyl-install.sh ${SCRIPT_URL}/install.sh && sudo bash /tmp/webproxyl-install.sh" >&2
+  echo "  wget -qO /tmp/tgwebproxyr-install.sh ${SCRIPT_URL}/install.sh && sudo bash /tmp/tgwebproxyr-install.sh" >&2
   exit 1
 fi
 
 echo ""
-echo "  WebProxyL — установка менеджера"
+echo "  TgWebProxyR — установка менеджера"
 echo "  ────────────────────────────────"
 echo "  repo: ${REPO} @ ${BRANCH}"
 echo ""
@@ -37,15 +37,15 @@ if ! command -v curl >/dev/null 2>&1; then
   fi
 fi
 
-tmpdir="$(mktemp -d /tmp/webproxyl-boot.XXXXXX)"
+tmpdir="$(mktemp -d /tmp/tgwebproxyr-boot.XXXXXX)"
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
-echo "  ↓ скачиваю WebProxyL…"
+echo "  ↓ скачиваю TgWebProxyR…"
 if curl -fsSL --retry 4 --retry-delay 2 "$ARCHIVE_URL" -o "${tmpdir}/src.tgz" 2>>"$INSTALL_LOG"; then
   mkdir -p "${tmpdir}/extract"
   tar -xzf "${tmpdir}/src.tgz" -C "${tmpdir}/extract"
-  src="$(find "${tmpdir}/extract" -maxdepth 1 -type d -name 'WebProxyL-*' | head -1)"
+  src="$(find "${tmpdir}/extract" -maxdepth 1 -type d -name 'TgWebProxyR-*' | head -1)"
   [[ -n "$src" ]] || { echo "  ✗ архив пуст"; exit 1; }
 else
   echo "  ✗ не удалось скачать ${ARCHIVE_URL}" >&2
@@ -59,30 +59,30 @@ find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name engine -exec rm -rf {} +
 cp -a "${src}/." "${INSTALL_DIR}/"
 rm -f "${INSTALL_DIR}/_ref_install.sh"
 
-chmod +x "${INSTALL_DIR}/webproxyl.sh" "${INSTALL_DIR}/install.sh"
+chmod +x "${INSTALL_DIR}/tgwebproxyr.sh" "${INSTALL_DIR}/install.sh"
 find "${INSTALL_DIR}/lib" -name '*.sh' -exec chmod +x {} \;
 
-cat >/usr/local/bin/webproxyl <<'EOF'
+cat >/usr/local/bin/tgwebproxyr <<'EOF'
 #!/usr/bin/env bash
-exec /opt/webproxyl/webproxyl.sh "$@"
+exec /opt/tgwebproxyr/tgwebproxyr.sh "$@"
 EOF
-chmod 0755 /usr/local/bin/webproxyl
+chmod 0755 /usr/local/bin/tgwebproxyr
 
 # Convenient alias for non-root shells
-cat >/etc/profile.d/webproxyl.sh <<'EOF'
-alias webproxyl='sudo webproxyl'
+cat >/etc/profile.d/tgwebproxyr.sh <<'EOF'
+alias tgwebproxyr='sudo tgwebproxyr'
 EOF
 
-VERSION="$(tr -d '[:space:]' </opt/webproxyl/version 2>/dev/null || echo '?')"
+VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
 echo ""
-echo "  ✓ WebProxyL ${VERSION} установлен в ${INSTALL_DIR}"
-echo "  ✓ команда: webproxyl"
+echo "  ✓ TgWebProxyR ${VERSION} установлен в ${INSTALL_DIR}"
+echo "  ✓ команда: tgwebproxyr"
 echo ""
 echo "  Дальше:"
-echo "    sudo webproxyl setup"
+echo "    sudo tgwebproxyr setup"
 echo ""
 
 # Auto-enter setup unless skipped
-if [[ "${WPL_SKIP_SETUP:-0}" != "1" ]]; then
-  exec /opt/webproxyl/webproxyl.sh setup
+if [[ "${TWPR_SKIP_SETUP:-0}" != "1" ]]; then
+  exec /opt/tgwebproxyr/tgwebproxyr.sh setup
 fi

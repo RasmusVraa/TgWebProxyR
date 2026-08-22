@@ -1,6 +1,6 @@
-# WebProxyL
+# TgWebProxyR
 
-**WebProxyL** — однострочный установщик и CLI-менеджер для нового типа прокси Telegram **WEB**.
+**TgWebProxyR** — однострочный установщик и CLI-менеджер для нового типа прокси Telegram **WEB**.
 
 Под капотом ставится официальный proof-of-concept движок
 [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server):
@@ -11,7 +11,7 @@
 > Нужен **Telegram Desktop 7.1.1+** (тип прокси **WEB** в Connection settings).
 
 <p align="center">
-  <img alt="WebProxyL" src="docs/banner.svg" width="720">
+  <img alt="TgWebProxyR" src="docs/banner.svg" width="720">
 </p>
 
 ---
@@ -78,30 +78,30 @@ https://t.me/webproxy?server=proxy.example.com&secret=<32hex>
 На чистом **Ubuntu 22.04+ / Debian 12+** (x86_64):
 
 ```bash
-wget -qO /tmp/webproxyl-install.sh \
-  https://raw.githubusercontent.com/RasmusVraa/WebProxyL/main/install.sh \
-  && sudo bash /tmp/webproxyl-install.sh
+wget -qO /tmp/tgwebproxyr-install.sh \
+  https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh \
+  && sudo bash /tmp/tgwebproxyr-install.sh
 ```
 
 Или:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RasmusVraa/WebProxyL/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh | sudo bash
 ```
 
-После загрузки менеджера сразу запускается мастер `webproxyl setup`.
+После загрузки менеджера сразу запускается мастер `tgwebproxyr setup`.
 
 Повторный вход в меню:
 
 ```bash
-sudo webproxyl
+sudo tgwebproxyr
 ```
 
 Пропустить мастер при bootstrap:
 
 ```bash
-sudo WPL_SKIP_SETUP=1 bash /tmp/webproxyl-install.sh
-sudo webproxyl setup
+sudo TWPR_SKIP_SETUP=1 bash /tmp/tgwebproxyr-install.sh
+sudo tgwebproxyr setup
 ```
 
 ---
@@ -119,7 +119,7 @@ sudo webproxyl setup
 5. Получите ссылку:
 
 ```bash
-sudo webproxyl link
+sudo tgwebproxyr link
 ```
 
 6. В Telegram Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
@@ -149,22 +149,22 @@ sudo webproxyl link
 ## CLI
 
 ```text
-webproxyl                 интерактивное меню
-webproxyl setup           мастер установки
-webproxyl status          caddy / mtproxy / tproxy-server / healthz
-webproxyl link            tg:// и https://t.me/webproxy
-webproxyl logs [unit]     journalctl
-webproxyl metrics         http://127.0.0.1:8081/metrics
-webproxyl update          deploy/update-relay.sh
-webproxyl reinstall       повторный официальный install
-webproxyl secret show
-webproxyl secret rotate
-webproxyl secret add      ещё один профиль на том же hostname
-webproxyl uninstall
+tgwebproxyr                 интерактивное меню
+tgwebproxyr setup           мастер установки
+tgwebproxyr status          caddy / mtproxy / tproxy-server / healthz
+tgwebproxyr link            tg:// и https://t.me/webproxy
+tgwebproxyr logs [unit]     journalctl
+tgwebproxyr metrics         http://127.0.0.1:8081/metrics
+tgwebproxyr update          deploy/update-relay.sh
+tgwebproxyr reinstall       повторный официальный install
+tgwebproxyr secret show
+tgwebproxyr secret rotate
+tgwebproxyr secret add      ещё один профиль на том же hostname
+tgwebproxyr uninstall
 ```
 
-Состояние менеджера: `/etc/webproxyl/settings.env`  
-Движок: `/opt/webproxyl/engine/tproxy-server`  
+Состояние менеджера: `/etc/tgwebproxyr/settings.env`  
+Движок: `/opt/tgwebproxyr/engine/tproxy-server`  
 Сайт: `/srv/tproxy-site`
 
 ---
@@ -173,7 +173,7 @@ webproxyl uninstall
 ## Публичный сайт
 
 Upstream **намеренно не кладёт** общий starter-сайт: одинаковые шаблоны легко
-узнаются активным зондированием. WebProxyL кладёт **свой** стартовый пакет
+узнаются активным зондированием. TgWebProxyR кладёт **свой** стартовый пакет
 «Northwind Field Notes» в `/srv/tproxy-site` только если каталога ещё нет.
 
 Обязательно замените тексты, структуру и визуал на свои. Контракт сайта —
@@ -208,7 +208,7 @@ sudo systemctl restart tproxy-server
 | Клиент | Telegram Desktop **≥ 7.1.1** |
 
 Установщик upstream ставит Caddy, nftables-защиту backend-портов, Go-релей,
-офитпиненный билд официального MTProxy и systemd-юниты.
+дотпиненный билд официального MTProxy и systemd-юниты.
 
 ---
 
@@ -230,19 +230,19 @@ sudo systemctl restart tproxy-server
 Обновить только Go-релей (конфиги/сайт/Caddy не трогает):
 
 ```bash
-sudo webproxyl update
+sudo tgwebproxyr update
 ```
 
 Полный повтор официального install (осторожно: перезапишет Caddyfile и single-profile):
 
 ```bash
-sudo webproxyl reinstall
+sudo tgwebproxyr reinstall
 ```
 
 Удаление:
 
 ```bash
-sudo webproxyl uninstall
+sudo tgwebproxyr uninstall
 ```
 
 ---
@@ -255,14 +255,14 @@ sudo webproxyl uninstall
 | Caddy не выдал сертификат | A/AAAA на этот хост, 80/443 открыты, нет CDN; битый AAAA лучше удалить |
 | `/readyz` = 503 | `systemctl status mtproxy`, доступность `127.0.0.1:2398` |
 | WebView показывает сайт, а не bridge | hostname+secret должны **точно** совпадать с профилем |
-| Клиент «Connecting…» | Desktop ≥ 7.1.1, WebView может открыть `https://hostname`, смотрите `webproxyl logs` |
+| Клиент «Connecting…» | Desktop ≥ 7.1.1, WebView может открыть `https://hostname`, смотрите `tgwebproxyr logs` |
 | Архитектура не x86_64 | stock MTProxy так не соберётся — нужен amd64 VPS |
 
 Диагностика без секретов:
 
 ```bash
-sudo webproxyl status
-sudo webproxyl logs
+sudo tgwebproxyr status
+sudo tgwebproxyr logs
 curl -fsS http://127.0.0.1:8081/healthz
 curl -fsS http://127.0.0.1:8081/readyz
 ```
@@ -274,7 +274,7 @@ curl -fsS http://127.0.0.1:8081/readyz
 
 - [telegramdesktop/tproxy-server](https://github.com/telegramdesktop/tproxy-server) — протокол и reference-сервер WEB proxy
 - [TelegramMessenger/MTProxy](https://github.com/TelegramMessenger/MTProxy) — backend
-- Идея удобного server-side менеджера вдохновлена экосистемой вроде [MTProxyL](https://github.com/Liafanx/MTProxyL), но WebProxyL — отдельный проект под новый тип **WEB**, без копирования кода
+- Идея удобного server-side менеджера вдохновлена экосистемой вроде [MTProxyL](https://github.com/Liafanx/MTProxyL), но TgWebProxyR — отдельный проект под новый тип **WEB**, без копирования кода
 
 ## Лицензия
 
