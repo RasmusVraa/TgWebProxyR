@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# TgWebProxyR — Docker-only installer
+# TgWebProxyR — bootstrap installer (Docker или Native)
 #
 #   wget -qO /tmp/twpr.sh https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh
 #   sudo bash /tmp/twpr.sh
 #
-# Env: TWPR_HOSTNAME TWPR_EMAIL TWPR_SECRET TWPR_YES=1
+# Env / flags:
+#   TWPR_HOSTNAME TWPR_EMAIL TWPR_SECRET TWPR_YES=1
+#   --docker | --native | --quick | --advanced | --yes
 set -euo pipefail
 
 REPO="${TWPR_GITHUB_REPO:-RasmusVraa/TgWebProxyR}"
@@ -13,22 +15,37 @@ INSTALL_DIR="/opt/tgwebproxyr"
 SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 ARCHIVE_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
 INSTALL_LOG="/tmp/tgwebproxyr-bootstrap.log"
-export TWPR_SETUP_MODE=docker
+
+SETUP_ARGS=()
+PREFETCH_DOCKER=0
 
 for arg in "$@"; do
   case "$arg" in
-    --yes|-y) export TWPR_YES=1 ;;
+    --yes|-y) export TWPR_YES=1; SETUP_ARGS+=(--yes) ;;
+    --docker) export TWPR_SETUP_MODE=docker; SETUP_ARGS+=(--docker); PREFETCH_DOCKER=1 ;;
+    --native|--systemd) export TWPR_SETUP_MODE=native; SETUP_ARGS+=(--native) ;;
+    --quick) export TWPR_SETUP_DEPTH=quick; SETUP_ARGS+=(--quick) ;;
+    --advanced) export TWPR_SETUP_DEPTH=advanced; SETUP_ARGS+=(--advanced) ;;
     --help|-h)
       cat <<EOF
-TgWebProxyR — установка только через Docker
+TgWebProxyR — установщик Telegram WEB Proxy
 
   sudo bash install.sh
-  sudo TWPR_HOSTNAME=proxy.example.com TWPR_EMAIL=you@ex.com TWPR_YES=1 bash install.sh
+  sudo bash install.sh --docker --quick
+  sudo bash install.sh --native --advanced
+  sudo TWPR_HOSTNAME=proxy.example.com TWPR_EMAIL=you@ex.com TWPR_YES=1 bash install.sh --docker
+
+Флаги: --docker | --native | --quick | --advanced | --yes
 EOF
       exit 0
       ;;
   esac
 done
+
+# без явного режима — по умолчанию Docker (как ProxyL), но мастер всё равно спросит
+if [[ -z "${TWPR_SETUP_MODE:-}" ]]; then
+  PREFETCH_DOCKER=1
+fi
 
 : >"$INSTALL_LOG"
 
@@ -39,8 +56,8 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 echo ""
-echo "  TgWebProxyR · Docker"
-echo "  ────────────────────"
+echo "  TgWebProxyR"
+echo "  ───────────"
 echo "  ${REPO} @ ${BRANCH}"
 echo ""
 
@@ -50,46 +67,47 @@ if ! command -v curl >/dev/null 2>&1; then
   apt-get install -y -qq curl ca-certificates >>"$INSTALL_LOG" 2>&1 || true
 fi
 
-# Docker сразу в фоне (прогресс — при ожидании в setup)
-echo "  >> Docker + образы в фоне…"
-(
-  if ! command -v docker >/dev/null 2>&1; then
-    echo "[bootstrap] installing docker…" >>"$INSTALL_LOG"
-    curl -fsSL https://get.docker.com | sh >>"$INSTALL_LOG" 2>&1 || true
-    systemctl enable --now docker >>"$INSTALL_LOG" 2>&1 || true
-  fi
-  if command -v docker >/dev/null 2>&1; then
-    export DOCKER_CLI_HINTS=false
-    for img in caddy:2.8-alpine \
-      ghcr.io/rasmusvraa/tgwebproxyr-relay:latest \
-      ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:latest; do
-      name="$(echo "$img" | tr '/:' '__')"
-      log="/tmp/twpr-boot-pull-${name}.log"
-      ( stdbuf -oL docker pull "$img" >"$log" 2>&1 || docker pull "$img" >"$log" 2>&1
-        echo "EXIT:$?" >>"$log" ) &
-      echo $! >"/tmp/twpr-boot-pull-${name}.pid"
-    done
-    # heartbeat
-    while true; do
-      any=0
-      for pidf in /tmp/twpr-boot-pull-*.pid; do
-        [[ -f "$pidf" ]] || continue
-        pid="$(cat "$pidf" 2>/dev/null || true)"
-        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-          any=1
-          log="${pidf%.pid}.log"
-          line="$(tail -1 "$log" 2>/dev/null | tr -d '\r' | cut -c1-80)"
-          echo "[$(date +%H:%M:%S)] ${line}" >>"$INSTALL_LOG"
-        fi
+EARLY_PID=""
+if [[ "$PREFETCH_DOCKER" -eq 1 ]]; then
+  echo "  >> Docker + образы в фоне…"
+  (
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "[bootstrap] installing docker…" >>"$INSTALL_LOG"
+      curl -fsSL https://get.docker.com | sh >>"$INSTALL_LOG" 2>&1 || true
+      systemctl enable --now docker >>"$INSTALL_LOG" 2>&1 || true
+    fi
+    if command -v docker >/dev/null 2>&1; then
+      export DOCKER_CLI_HINTS=false
+      for img in caddy:2.8-alpine \
+        ghcr.io/rasmusvraa/tgwebproxyr-relay:latest \
+        ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:latest; do
+        name="$(echo "$img" | tr '/:' '__')"
+        log="/tmp/twpr-boot-pull-${name}.log"
+        ( stdbuf -oL docker pull "$img" >"$log" 2>&1 || docker pull "$img" >"$log" 2>&1
+          echo "EXIT:$?" >>"$log" ) &
+        echo $! >"/tmp/twpr-boot-pull-${name}.pid"
       done
-      [[ "$any" -eq 0 ]] && break
-      sleep 3
-    done
-    wait || true
-  fi
-) &
-EARLY_PID=$!
-echo "  >> (прогресс образов: tail -f ${INSTALL_LOG})"
+      while true; do
+        any=0
+        for pidf in /tmp/twpr-boot-pull-*.pid; do
+          [[ -f "$pidf" ]] || continue
+          pid="$(cat "$pidf" 2>/dev/null || true)"
+          if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            any=1
+            log="${pidf%.pid}.log"
+            line="$(tail -1 "$log" 2>/dev/null | tr -d '\r' | cut -c1-80)"
+            echo "[$(date +%H:%M:%S)] ${line}" >>"$INSTALL_LOG"
+          fi
+        done
+        [[ "$any" -eq 0 ]] && break
+        sleep 3
+      done
+      wait || true
+    fi
+  ) &
+  EARLY_PID=$!
+  echo "  >> (прогресс: tail -f ${INSTALL_LOG})"
+fi
 
 tmpdir="$(mktemp -d /tmp/tgwebproxyr-boot.XXXXXX)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -103,7 +121,6 @@ src="$(find "${tmpdir}/extract" -maxdepth 1 -type d -name 'TgWebProxyR-*' | head
 
 mkdir -p "$INSTALL_DIR"
 find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name engine ! -name backups ! -name docker -exec rm -rf {} + 2>/dev/null || true
-# сохранить docker/.env если был
 if [[ -f "${INSTALL_DIR}/docker/.env" ]]; then
   cp -a "${INSTALL_DIR}/docker/.env" "${tmpdir}/.env.save"
 fi
@@ -124,11 +141,19 @@ exec /opt/tgwebproxyr/tgwebproxyr.sh "$@"
 EOF
 chmod 0755 /usr/local/bin/tgwebproxyr
 
+# алиас без sudo для обычных пользователей (как в ProxyL)
+cat >/etc/profile.d/tgwebproxyr.sh <<'EOF'
+# TgWebProxyR — удобный вызов от non-root
+if [ "$(id -u)" -ne 0 ] && command -v tgwebproxyr >/dev/null 2>&1; then
+  alias tgwebproxyr='sudo tgwebproxyr'
+fi
+EOF
+chmod 644 /etc/profile.d/tgwebproxyr.sh
+
 VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
 echo "  OK  v${VERSION} → ${INSTALL_DIR}"
 
-# дождаться фона с коротким прогрессом
-if kill -0 "$EARLY_PID" 2>/dev/null; then
+if [[ -n "$EARLY_PID" ]] && kill -0 "$EARLY_PID" 2>/dev/null; then
   echo "  >> жду Docker/образы…"
   spin='|/-\' si=0
   while kill -0 "$EARLY_PID" 2>/dev/null; do
@@ -138,13 +163,13 @@ if kill -0 "$EARLY_PID" 2>/dev/null; then
     sleep 1
   done
   echo ""
+  wait "$EARLY_PID" 2>/dev/null || true
 fi
-wait "$EARLY_PID" 2>/dev/null || true
 
 if [[ ! -r /dev/tty ]] && [[ ! -t 0 ]]; then
   if [[ -n "${TWPR_HOSTNAME:-}" && -n "${TWPR_EMAIL:-}" ]]; then
-    export TWPR_YES=1 TWPR_SETUP_MODE=docker
-    exec /opt/tgwebproxyr/tgwebproxyr.sh setup
+    export TWPR_YES=1
+    exec /opt/tgwebproxyr/tgwebproxyr.sh setup "${SETUP_ARGS[@]}"
   fi
   echo "  XX Нет TTY. Запустите файл через bash, не curl|bash"
   exit 1
@@ -153,9 +178,11 @@ fi
 echo ""
 echo "  Нужны DNS A на этот VPS и порты 80/443"
 echo ""
-exec env TWPR_SETUP_MODE=docker \
+exec env \
   TWPR_HOSTNAME="${TWPR_HOSTNAME:-}" \
   TWPR_EMAIL="${TWPR_EMAIL:-}" \
   TWPR_SECRET="${TWPR_SECRET:-}" \
   TWPR_YES="${TWPR_YES:-}" \
-  /opt/tgwebproxyr/tgwebproxyr.sh setup
+  TWPR_SETUP_MODE="${TWPR_SETUP_MODE:-}" \
+  TWPR_SETUP_DEPTH="${TWPR_SETUP_DEPTH:-}" \
+  /opt/tgwebproxyr/tgwebproxyr.sh setup "${SETUP_ARGS[@]}"

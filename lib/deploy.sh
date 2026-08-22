@@ -489,10 +489,6 @@ TWPR_wizard_done() {
   TWPR_info "Меню управления:  ${C_BOLD}tgwebproxyr${C_RESET}"
 }
 
-TWPR_pick_setup_mode() {
-  TWPR_SETUP_MODE="docker"
-}
-
 TWPR_wizard_quick_domain_email() {
   TWPR_step 2 "$TWPR_TOTAL_STEPS" "Домен и email"
   echo "  Перед запуском:"
@@ -522,29 +518,175 @@ TWPR_wizard_quick_domain_email() {
   fi
 }
 
-# Единственный способ установки — Docker
-TWPR_cmd_setup() {
-  set +e
-  TWPR_banner
-  echo "  Установка Telegram WEB Proxy · Docker"
+TWPR_pick_setup_mode() {
+  # уже задано флагом / env — не спрашиваем
+  if [[ -n "${TWPR_SETUP_MODE:-}" ]]; then
+    return 0
+  fi
+  echo -e "  ${C_BOLD}Режим установки${C_RESET}"
   echo ""
-  TWPR_load_state
-  TWPR_SETUP_MODE="docker"
+  echo -e "  ${C_BOLD}1${C_RESET})  Docker · быстро     ${C_DIM}рекомендуется · готовые образы GHCR${C_RESET}"
+  echo -e "  ${C_BOLD}2${C_RESET})  Docker · расширенно ${C_DIM}порты / workers / свой secret${C_RESET}"
+  echo -e "  ${C_BOLD}3${C_RESET})  Native · быстро     ${C_DIM}systemd + upstream tproxy-server${C_RESET}"
+  echo -e "  ${C_BOLD}4${C_RESET})  Native · расширенно ${C_DIM}порты, workers, secret${C_RESET}"
+  echo ""
+  local choice=""
+  TWPR_ask choice "Выбор" "1"
+  case "$choice" in
+    2) TWPR_SETUP_MODE=docker; TWPR_SETUP_DEPTH=advanced ;;
+    3) TWPR_SETUP_MODE=native; TWPR_SETUP_DEPTH=quick ;;
+    4) TWPR_SETUP_MODE=native; TWPR_SETUP_DEPTH=advanced ;;
+    *) TWPR_SETUP_MODE=docker; TWPR_SETUP_DEPTH=quick ;;
+  esac
+  export TWPR_SETUP_MODE TWPR_SETUP_DEPTH
+}
+
+TWPR_parse_setup_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --docker) export TWPR_SETUP_MODE=docker ;;
+      --native|--systemd) export TWPR_SETUP_MODE=native ;;
+      --quick) export TWPR_SETUP_DEPTH=quick ;;
+      --advanced) export TWPR_SETUP_DEPTH=advanced ;;
+      --yes|-y) export TWPR_YES=1 ;;
+      --hostname) export TWPR_HOSTNAME="$2"; shift ;;
+      --email) export TWPR_EMAIL="$2"; shift ;;
+      --secret) export TWPR_SECRET="$2"; shift ;;
+      --workers) export TWPR_MTPROXY_WORKERS="$2"; shift ;;
+      --help|-h)
+        cat <<EOF
+tgwebproxyr setup [опции]
+
+  --docker | --native     носитель
+  --quick  | --advanced   глубина вопросов
+  --hostname DOMAIN
+  --email EMAIL
+  --secret HEX
+  --workers N
+  --yes                   без подтверждений
+EOF
+        exit 0
+        ;;
+      *) ;;
+    esac
+    shift
+  done
+}
+
+TWPR_setup_native() {
+  local depth="${TWPR_SETUP_DEPTH:-quick}"
+  TWPR_DEPLOY_MODE="native"
+  if [[ "$depth" == "advanced" ]]; then
+    TWPR_TOTAL_STEPS=9
+    TWPR_wizard_check_system
+    TWPR_wizard_ask_domain
+    TWPR_wizard_ask_email
+    TWPR_wizard_ask_secret 4
+    TWPR_wizard_ask_ports
+    TWPR_wizard_ask_capacity
+    TWPR_wizard_check_dns 7
+    TWPR_wizard_confirm 8
+    TWPR_wizard_deploy
+  else
+    TWPR_TOTAL_STEPS=6
+    TWPR_wizard_check_system
+    TWPR_wizard_quick_domain_email
+    TWPR_SETUP_MODE=quick
+    TWPR_wizard_ask_secret 3
+    TWPR_PORT_HTTP=80 TWPR_PORT_HTTPS=443
+    TWPR_PORT_RELAY=8080 TWPR_PORT_ADMIN=8081 TWPR_PORT_MTPROXY=2398
+    TWPR_MTPROXY_WORKERS="${TWPR_MTPROXY_WORKERS:-1}"
+    TWPR_MTPROXY_MAX_CONNECTIONS="${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
+    TWPR_wizard_check_dns 4
+    TWPR_wizard_confirm 5
+    TWPR_wizard_deploy
+  fi
+  TWPR_wizard_done
+}
+
+TWPR_setup_docker() {
+  local depth="${TWPR_SETUP_DEPTH:-quick}"
   TWPR_DEPLOY_MODE="docker"
   # shellcheck disable=SC1091
   source "${TWPR_ROOT}/lib/docker.sh"
-  TWPR_docker_install_engine
+
+  if [[ "$depth" == "advanced" ]]; then
+    TWPR_docker_ensure_docker || return 1
+    TWPR_IMAGE_TAG="${TWPR_IMAGE_TAG:-latest}"
+    TWPR_docker_prefetch
+    TWPR_wizard_quick_domain_email
+    TWPR_SETUP_MODE=quick
+    TWPR_wizard_ask_secret 3
+    TWPR_wizard_ask_capacity
+    local http="${TWPR_PORT_HTTP:-80}" https="${TWPR_PORT_HTTPS:-443}"
+    TWPR_ask http "Публичный HTTP" "$http"
+    TWPR_ask https "Публичный HTTPS" "$https"
+    TWPR_PORT_HTTP="$http"
+    TWPR_PORT_HTTPS="$https"
+    TWPR_INSTALLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    TWPR_prepare_site
+    TWPR_docker_write_env
+    TWPR_save_state
+    TWPR_docker_compose down --remove-orphans 2>/dev/null || true
+    TWPR_docker_up || return 1
+    TWPR_ok "Docker-стек запущен"
+    TWPR_cmd_status
+    TWPR_cmd_link
+  else
+    TWPR_docker_install_engine
+  fi
+}
+
+TWPR_cmd_setup() {
+  set +e
+  TWPR_parse_setup_args "$@"
+  TWPR_banner
+  echo "  Установка Telegram WEB Proxy"
+  echo ""
+  TWPR_load_state
+  TWPR_pick_setup_mode
+
+  case "${TWPR_SETUP_MODE}" in
+    native|systemd)
+      TWPR_setup_native
+      ;;
+    *)
+      TWPR_setup_docker
+      ;;
+  esac
 }
 
 TWPR_cmd_update() {
   TWPR_require_root
   TWPR_load_state
-  TWPR_DEPLOY_MODE="docker"
-  TWPR_IMAGE_TAG="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo latest)"
-  TWPR_docker_up
+  if TWPR_is_docker; then
+    TWPR_IMAGE_TAG="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo latest)"
+    TWPR_docker_ensure_env 2>/dev/null || true
+    TWPR_docker_write_env 2>/dev/null || true
+    TWPR_docker_pull_images || true
+    TWPR_docker_up
+  else
+    TWPR_fetch_engine
+    TWPR_info "Пересобираю / обновляю native стек…"
+    TWPR_run_official_install || true
+  fi
   TWPR_cmd_status
 }
 
 TWPR_cmd_reinstall() {
-  TWPR_cmd_setup
+  TWPR_cmd_setup "$@"
+}
+
+TWPR_cmd_doctor() {
+  TWPR_require_root
+  TWPR_load_state
+  TWPR_info "Doctor…"
+  if TWPR_is_docker; then
+    TWPR_cmd_docker restart
+    sleep 2
+    TWPR_cmd_status
+    return 0
+  fi
+  TWPR_ensure_relay_ready || true
+  TWPR_cmd_status
 }

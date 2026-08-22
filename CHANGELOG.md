@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 — 2026-08-22
+
+- CLI в духе ProxyL / MTProxyL: вложенные меню, `start|stop|restart`, secrets, настройки
+- Гибкая установка: **Docker** или **Native**, быстро / расширенно
+- `install.sh` / `setup`: `--docker|--native|--quick|--advanced|--hostname|--email|--yes`
+- Алиас `tgwebproxyr` → `sudo tgwebproxyr` для обычных пользователей
+- README и [GitHub Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki)
+
 ## 1.5.1 — 2026-08-22
 
 - Живой прогресс скачивания Docker-образов (полоска + статус по caddy/relay/mtproxy)
@@ -79,17 +87,4 @@
 
 ## 1.1.0 — 2026-08-22
 
-- Пошаговый мастер установки (8 шагов) прямо из one-liner
-- `install.sh` сразу запускает wizard, без отдельных команд
-- Дашборд вместо пустого меню: статус, health, ссылки
-- Исправлено тихое падение `setup` после баннера
-
-## 1.0.1 — 2026-08-22
-
-- Переименование проекта в **TgWebProxyR**
-- CLI-команда: `tgwebproxyr`
-- PNG-баннер в README
-
-## 1.0.0 — 2026-08-22
-
-- Первый релиз (ранее WebProxyL)
+- Первый публичный релиз менеджера WEB-прокси

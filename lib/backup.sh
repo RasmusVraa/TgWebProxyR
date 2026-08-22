@@ -27,11 +27,12 @@ TWPR_backup_create() {
     /etc/tproxy-server/profiles.json \
     /etc/tproxy-server/config.json \
     /etc/caddy/Caddyfile \
-    /etc/mtproxy/mtproxy.env; do
+    /etc/mtproxy/mtproxy.env \
+    "${TWPR_ROOT}/docker/.env"; do
     [[ -f "$f" ]] && cp -a "$f" "$dest/"
   done
   cat >"$dest/meta.json" <<EOF
-{"created_at":"${stamp}","hostname":"${TWPR_HOSTNAME:-}","version":"${TWPR_VERSION:-}"}
+{"created_at":"${stamp}","hostname":"${TWPR_HOSTNAME:-}","version":"${TWPR_VERSION:-}","mode":"${TWPR_DEPLOY_MODE:-}"}
 EOF
   TWPR_ok "Бэкап: ${dest}"
 }
@@ -70,8 +71,17 @@ TWPR_backup_restore() {
   [[ -f "$src/config.json" ]] && cp -a "$src/config.json" /etc/tproxy-server/config.json
   [[ -f "$src/Caddyfile" ]] && cp -a "$src/Caddyfile" /etc/caddy/Caddyfile
   [[ -f "$src/mtproxy.env" ]] && cp -a "$src/mtproxy.env" /etc/mtproxy/mtproxy.env
+  if [[ -f "$src/.env" ]]; then
+    mkdir -p "${TWPR_ROOT}/docker"
+    cp -a "$src/.env" "${TWPR_ROOT}/docker/.env"
+  fi
 
-  systemctl restart mtproxy tproxy-server caddy tgwebproxyr-bot 2>/dev/null || true
+  TWPR_load_state
+  if TWPR_is_docker; then
+    TWPR_docker_compose up -d --force-recreate --remove-orphans 2>/dev/null || true
+  else
+    systemctl restart mtproxy tproxy-server caddy tgwebproxyr-bot 2>/dev/null || true
+  fi
   TWPR_ok "Восстановлено"
   TWPR_cmd_status
 }
