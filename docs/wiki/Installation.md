@@ -63,11 +63,13 @@ sudo tgwebproxyr health   # healthz / readyz / HTTPS
 ## Обновление с релиза
 
 ```bash
-sudo wget -qO /tmp/twpr.tgz \
-  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.7.tar.gz
-sudo tar -xzf /tmp/twpr.tgz -C /opt/tgwebproxyr --strip-components=1
-sudo tgwebproxyr secret apply
-sudo tgwebproxyr bot update
+# с v1.6.9 — обновляет и скрипт, и стек:
+sudo tgwebproxyr update
+
+# если на сервере ещё старый update (≤1.6.8):
+wget -qO /tmp/twpr.sh \
+  https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh \
+  && sudo bash /tmp/twpr.sh --update-only
 ```
 
 Или: `sudo tgwebproxyr update`.

@@ -675,11 +675,22 @@ TWPR_cmd_setup() {
 TWPR_cmd_update() {
   TWPR_require_root
   TWPR_load_state
+
+  local mode="${1:-}"
+  # 1) сначала обновить сам менеджер с GitHub, затем re-exec новой копией
+  if [[ "$mode" != "--stack-only" && "$mode" != "--no-self" ]]; then
+    if TWPR_self_update; then
+      TWPR_info "Перезапуск update уже новым кодом…"
+      exec /usr/local/bin/tgwebproxyr update --stack-only
+    fi
+    TWPR_warn "Self-update не удался — обновляю только стек текущей версией"
+  fi
+
+  # 2) стек: Docker-образы или native engine
   if TWPR_is_docker; then
     TWPR_IMAGE_TAG="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo latest)"
     TWPR_docker_ensure_env 2>/dev/null || true
     TWPR_docker_write_env 2>/dev/null || true
-    # восстановить Caddyfile / tls override из settings
     if declare -F TWPR_certs_prepare_docker >/dev/null 2>&1; then
       TWPR_certs_prepare_docker
     fi
@@ -693,7 +704,101 @@ TWPR_cmd_update() {
       TWPR_certs_apply_native
     fi
   fi
+
+  # бот / api, если стоят
+  if [[ -f /etc/systemd/system/tgwebproxyr-bot.service ]] || [[ -f /etc/tgwebproxyr/bot.env ]]; then
+    if declare -F TWPR_bot_install_files >/dev/null 2>&1; then
+      TWPR_bot_install_files --pull 2>/dev/null || true
+      systemctl restart tgwebproxyr-bot.service 2>/dev/null || true
+    fi
+  fi
+  if [[ -f /etc/systemd/system/tgwebproxyr-api.service ]]; then
+    if [[ -f "${TWPR_ROOT}/bot/twpr_api.py" ]]; then
+      mkdir -p /opt/tgwebproxyr/bot
+      cp -a "${TWPR_ROOT}/bot/twpr_api.py" /opt/tgwebproxyr/bot/twpr_api.py
+      systemctl restart tgwebproxyr-api.service 2>/dev/null || true
+    fi
+  fi
+
+  local ver
+  ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo '?')"
+  TWPR_ok "Обновление завершено · TgWebProxyR v${ver}"
   TWPR_cmd_status
+}
+
+# Скачать свежий архив с GitHub и обновить /opt/tgwebproxyr (без трогания state/engine/backups)
+TWPR_self_update() {
+  local repo branch archive_url install_dir old_ver new_ver
+  repo="${TWPR_GITHUB_REPO:-RasmusVraa/TgWebProxyR}"
+  branch="${TWPR_BRANCH:-main}"
+  # можно зафиксировать релиз: TWPR_UPDATE_REF=v1.6.9
+  if [[ -n "${TWPR_UPDATE_REF:-}" ]]; then
+    archive_url="https://github.com/${repo}/archive/refs/tags/${TWPR_UPDATE_REF}.tar.gz"
+    TWPR_info "Self-update: ${repo} @ ${TWPR_UPDATE_REF}"
+  else
+    archive_url="https://github.com/${repo}/archive/refs/heads/${branch}.tar.gz"
+    TWPR_info "Self-update: ${repo} @ ${branch}"
+  fi
+  install_dir="${TWPR_ROOT:-/opt/tgwebproxyr}"
+  old_ver="$(tr -d '[:space:]' <"${install_dir}/version" 2>/dev/null || echo '?')"
+
+  command -v curl >/dev/null 2>&1 || {
+    TWPR_err "нужен curl"
+    return 1
+  }
+
+  local tmp
+  tmp="$(mktemp -d /tmp/tgwebproxyr-update.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  TWPR_info "Скачиваю ${archive_url}…"
+  if ! curl -fsSL --retry 4 --retry-delay 2 "$archive_url" -o "${tmp}/src.tgz"; then
+    TWPR_err "не удалось скачать архив"
+    return 1
+  fi
+  mkdir -p "${tmp}/extract"
+  tar -xzf "${tmp}/src.tgz" -C "${tmp}/extract"
+  local src
+  src="$(find "${tmp}/extract" -maxdepth 1 -type d \( -name 'TgWebProxyR-*' -o -name 'tgwebproxyr-*' \) | head -1)"
+  if [[ -z "$src" || ! -f "${src}/tgwebproxyr.sh" ]]; then
+    TWPR_err "в архиве нет tgwebproxyr.sh"
+    return 1
+  fi
+  new_ver="$(tr -d '[:space:]' <"${src}/version" 2>/dev/null || echo '?')"
+
+  # сохранить то, что нельзя затирать
+  mkdir -p "$tmp/keep"
+  [[ -f "${install_dir}/docker/.env" ]] && cp -a "${install_dir}/docker/.env" "$tmp/keep/.env"
+  [[ -f "${install_dir}/docker/docker-compose.tls.yml" ]] \
+    && cp -a "${install_dir}/docker/docker-compose.tls.yml" "$tmp/keep/docker-compose.tls.yml"
+
+  mkdir -p "$install_dir"
+  # не трогаем engine/ и backups/; docker/ перезапишется из архива, .env вернём
+  find "$install_dir" -mindepth 1 -maxdepth 1 \
+    ! -name engine ! -name backups ! -name docker \
+    -exec rm -rf {} + 2>/dev/null || true
+
+  cp -a "${src}/." "${install_dir}/"
+
+  mkdir -p "${install_dir}/docker"
+  [[ -f "$tmp/keep/.env" ]] && cp -a "$tmp/keep/.env" "${install_dir}/docker/.env"
+  [[ -f "$tmp/keep/docker-compose.tls.yml" ]] \
+    && cp -a "$tmp/keep/docker-compose.tls.yml" "${install_dir}/docker/docker-compose.tls.yml"
+
+  find "$install_dir" -type f \( -name '*.sh' -o -name 'version' \) -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+  chmod +x "${install_dir}/tgwebproxyr.sh" "${install_dir}/install.sh" 2>/dev/null || true
+  find "${install_dir}/lib" -name '*.sh' -exec chmod +x {} \; 2>/dev/null || true
+  find "${install_dir}/docker" -name '*.sh' -exec chmod +x {} \; 2>/dev/null || true
+
+  cat >/usr/local/bin/tgwebproxyr <<'EOF'
+#!/usr/bin/env bash
+exec /opt/tgwebproxyr/tgwebproxyr.sh "$@"
+EOF
+  chmod 0755 /usr/local/bin/tgwebproxyr
+
+  TWPR_ok "Менеджер: v${old_ver} → v${new_ver}"
+  return 0
 }
 
 TWPR_cmd_reinstall() {

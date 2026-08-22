@@ -288,12 +288,22 @@ sudo tgwebproxyr certs detect   # найти и применить
 ## Обновление
 
 ```bash
+# с v1.6.9+:
 sudo tgwebproxyr update
-# или вручную с релиза:
+
+# если update ещё старый (≤1.6.8) — один раз:
+wget -qO /tmp/twpr.sh \
+  https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh \
+  && sudo bash /tmp/twpr.sh --update-only
+```
+
+Или вручную с тега:
+
+```bash
 sudo wget -qO /tmp/twpr.tgz \
-  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.7.tar.gz
+  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.9.tar.gz
 sudo tar -xzf /tmp/twpr.tgz -C /opt/tgwebproxyr --strip-components=1
-sudo tgwebproxyr secret apply
+sudo tgwebproxyr update --stack-only
 sudo tgwebproxyr bot update
 ```
 

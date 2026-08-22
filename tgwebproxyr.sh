@@ -74,7 +74,8 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr certs …         status|detect       (TLS / ACME)
   tgwebproxyr backup …        create|list|restore|auto
   tgwebproxyr docker …        setup|up|down|logs|pull
-  tgwebproxyr update
+  tgwebproxyr update              # менеджер с GitHub + стек
+  tgwebproxyr update --stack-only # только образы/engine (без скачивания скрипта)
   tgwebproxyr uninstall
   tgwebproxyr version | help
 
@@ -97,7 +98,7 @@ main() {
     health|check|probe) TWPR_cmd_health "$@" ;;
     link|links) TWPR_cmd_link "$@" ;;
     logs) TWPR_load_state; TWPR_cmd_logs "$@" ;;
-    update) TWPR_cmd_update ;;
+    update) TWPR_cmd_update "$@" ;;
     doctor|fix|repair) TWPR_cmd_doctor ;;
     secret)
       case "${1:-}" in

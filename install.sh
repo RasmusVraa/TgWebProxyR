@@ -18,6 +18,7 @@ INSTALL_LOG="/tmp/tgwebproxyr-bootstrap.log"
 
 SETUP_ARGS=()
 PREFETCH_DOCKER=0
+UPDATE_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -26,6 +27,9 @@ for arg in "$@"; do
     --native|--systemd) export TWPR_SETUP_MODE=native; SETUP_ARGS+=(--native) ;;
     --quick) export TWPR_SETUP_DEPTH=quick; SETUP_ARGS+=(--quick) ;;
     --advanced) export TWPR_SETUP_DEPTH=advanced; SETUP_ARGS+=(--advanced) ;;
+    --update-only|--sync|--update)
+      UPDATE_ONLY=1
+      ;;
     --help|-h)
       cat <<EOF
 TgWebProxyR — установщик Telegram WEB Proxy
@@ -33,9 +37,10 @@ TgWebProxyR — установщик Telegram WEB Proxy
   sudo bash install.sh
   sudo bash install.sh --docker --quick
   sudo bash install.sh --native --advanced
+  sudo bash install.sh --update-only          # только обновить /opt/tgwebproxyr
   sudo TWPR_HOSTNAME=proxy.example.com TWPR_EMAIL=you@ex.com TWPR_YES=1 bash install.sh --docker
 
-Флаги: --docker | --native | --quick | --advanced | --yes
+Флаги: --docker | --native | --quick | --advanced | --yes | --update-only
 EOF
       exit 0
       ;;
@@ -43,8 +48,13 @@ EOF
 done
 
 # без явного режима — по умолчанию Docker (как ProxyL), но мастер всё равно спросит
-if [[ -z "${TWPR_SETUP_MODE:-}" ]]; then
+if [[ -z "${TWPR_SETUP_MODE:-}" && "$UPDATE_ONLY" -eq 0 ]]; then
   PREFETCH_DOCKER=1
+fi
+
+# для --update-only не качаем docker в фоне
+if [[ "$UPDATE_ONLY" -eq 1 ]]; then
+  PREFETCH_DOCKER=0
 fi
 
 : >"$INSTALL_LOG"
@@ -152,6 +162,12 @@ chmod 644 /etc/profile.d/tgwebproxyr.sh
 
 VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
 echo "  OK  v${VERSION} → ${INSTALL_DIR}"
+
+# только обновить файлы менеджера (+ стек), без мастера setup
+if [[ "$UPDATE_ONLY" -eq 1 ]]; then
+  echo "  >> update-only: стек…"
+  exec /opt/tgwebproxyr/tgwebproxyr.sh update --stack-only
+fi
 
 if [[ -n "$EARLY_PID" ]] && kill -0 "$EARLY_PID" 2>/dev/null; then
   echo "  >> жду Docker/образы…"
