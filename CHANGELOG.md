@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.3 — 2026-08-22
+
+- Фикс mtproxy `203/EXEC`: слишком жёсткий umask ломал права `/opt/MTProxy`
+- `tgwebproxyr doctor` чинит chmod/пересборку mtproto-proxy
+
 ## 1.2.2 — 2026-08-22
 
 - Восстановление после `tproxy-server did not become ready`

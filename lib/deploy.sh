@@ -42,6 +42,54 @@ TWPR_diagnose_relay() {
   curl -sv --max-time 3 "http://127.0.0.1:${admin}/readyz" 2>&1 | tail -n 20 || true
 }
 
+TWPR_fix_mtproxy_binary() {
+  local bin="/opt/MTProxy/objs/bin/mtproto-proxy"
+  local engine_install="${TWPR_ENGINE_DIR}/deploy/install-mtproxy.sh"
+
+  # umask 077 during install can leave /opt/MTProxy as 0700 root:root → 203/EXEC for User=mtproxy
+  if [[ -d /opt/MTProxy ]]; then
+    TWPR_info "Чиню права /opt/MTProxy (чтобы User=mtproxy мог запускать бинарник)"
+    find /opt/MTProxy -type d -exec chmod 755 {} + 2>/dev/null || true
+    find /opt/MTProxy -type f -exec chmod a+r {} + 2>/dev/null || true
+    [[ -f "$bin" ]] && chmod 755 "$bin"
+    # keep secrets tight
+    if [[ -d /etc/mtproxy ]]; then
+      chown -R root:mtproxy /etc/mtproxy 2>/dev/null || true
+      chmod 0750 /etc/mtproxy 2>/dev/null || true
+      chmod 0640 /etc/mtproxy/proxy-secret /etc/mtproxy/proxy-multi.conf 2>/dev/null || true
+      [[ -f /etc/mtproxy/mtproxy.env ]] && chmod 0640 /etc/mtproxy/mtproxy.env
+    fi
+  fi
+
+  if [[ ! -x "$bin" ]]; then
+    TWPR_warn "Бинарник mtproto-proxy отсутствует — пересобираю"
+    if [[ -x "$engine_install" ]]; then
+      # Do NOT use umask 077 here — directories must stay world-traversable
+      umask 022
+      bash "$engine_install"
+    else
+      TWPR_err "Нет ${engine_install}. Сначала: tgwebproxyr setup"
+      return 1
+    fi
+  fi
+
+  if [[ ! -x "$bin" ]]; then
+    TWPR_err "mtproto-proxy всё ещё не исполняемый: ${bin}"
+    ls -la /opt/MTProxy/objs/bin 2>&1 || true
+    return 1
+  fi
+
+  # Quick sanity: file + dynamic linker
+  if ! "$bin" --help >/dev/null 2>&1 && ! "$bin" -h >/dev/null 2>&1; then
+    # official binary may not support --help; try `file` / ldd
+    file "$bin" 2>/dev/null || true
+    ldd "$bin" 2>/dev/null | head -n 20 || true
+  fi
+
+  TWPR_ok "mtproto-proxy: ${bin}"
+  return 0
+}
+
 TWPR_ensure_relay_ready() {
   local admin="${TWPR_PORT_ADMIN:-8081}"
   local i
@@ -66,10 +114,45 @@ TWPR_ensure_relay_ready() {
     chmod 0640 /etc/tproxy-server/config.json 2>/dev/null || true
   fi
 
+  TWPR_fix_mtproxy_binary || return 1
+
+  # Ensure mtproxy.env exists with secret
+  if [[ ! -f /etc/mtproxy/mtproxy.env ]]; then
+    mkdir -p /etc/mtproxy
+    umask 077
+    cat >/etc/mtproxy/mtproxy.env <<EOF
+MTPROXY_SECRET=${TWPR_SECRET:-}
+MTPROXY_WORKERS=${TWPR_MTPROXY_WORKERS:-1}
+MTPROXY_MAX_CONNECTIONS=${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}
+EOF
+    chown root:mtproxy /etc/mtproxy/mtproxy.env
+    chmod 0640 /etc/mtproxy/mtproxy.env
+    umask 022
+  elif [[ -n "${TWPR_SECRET:-}" ]] && ! grep -q '^MTPROXY_SECRET=.\+' /etc/mtproxy/mtproxy.env; then
+    sed -i "s/^MTPROXY_SECRET=.*/MTPROXY_SECRET=${TWPR_SECRET}/" /etc/mtproxy/mtproxy.env || \
+      echo "MTPROXY_SECRET=${TWPR_SECRET}" >>/etc/mtproxy/mtproxy.env
+  fi
+
   systemctl reset-failed tproxy-firewall mtproxy tproxy-server 2>/dev/null || true
   systemctl start tproxy-firewall 2>/dev/null || true
   systemctl restart mtproxy 2>/dev/null || true
   sleep 2
+
+  if ! systemctl is-active --quiet mtproxy; then
+    TWPR_warn "mtproxy всё ещё не active после фикса прав"
+    journalctl -u mtproxy -n 30 --no-pager 2>&1 || true
+    # one more rebuild attempt if still 203
+    if journalctl -u mtproxy -n 5 --no-pager 2>/dev/null | grep -q '203/EXEC'; then
+      TWPR_warn "Повторная 203/EXEC — пересобираю MTProxy с umask 022"
+      rm -rf /opt/MTProxy
+      umask 022
+      bash "${TWPR_ENGINE_DIR}/deploy/install-mtproxy.sh"
+      TWPR_fix_mtproxy_binary || return 1
+      systemctl restart mtproxy
+      sleep 2
+    fi
+  fi
+
   systemctl restart tproxy-server 2>/dev/null || true
 
   TWPR_info "Жду готовности relay (до 90с)…"
@@ -79,8 +162,7 @@ TWPR_ensure_relay_ready() {
       return 0
     fi
     if (( i % 15 == 0 )); then
-      TWPR_info "ещё жду… (${i}s) healthz=$(curl -fsS --max-time 1 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1 && echo ok || echo fail)"
-      systemctl is-active mtproxy tproxy-server 2>/dev/null || true
+      TWPR_info "ещё жду… (${i}s) mtproxy=$(systemctl is-active mtproxy 2>/dev/null) healthz=$(curl -fsS --max-time 1 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1 && echo ok || echo fail)"
     fi
     sleep 1
   done
@@ -120,12 +202,21 @@ TWPR_run_official_install() {
   TWPR_patch_upstream_install
   set +e
   (
-    umask 077
+    # Important: do NOT use umask 077 here — MTProxy dirs must stay traversable by User=mtproxy
+    umask 022
     cd "$TWPR_ENGINE_DIR"
     bash ./deploy/install.sh "${args[@]}"
   )
   rc=$?
   set -e
+
+  # Tighten only secret files after install
+  if [[ -f /etc/tproxy-server/profiles.json ]]; then
+    chmod 0400 /etc/tproxy-server/profiles.json 2>/dev/null || true
+  fi
+  if [[ -f /etc/mtproxy/mtproxy.env ]]; then
+    chmod 0640 /etc/mtproxy/mtproxy.env 2>/dev/null || true
+  fi
 
   if [[ "$rc" -ne 0 ]]; then
     TWPR_warn "upstream install код ${rc} — запускаю восстановление сервисов"
