@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 — 2026-08-22
+
+- Восстановление после `tproxy-server did not become ready`
+- Longer ready-wait, soft-fail upstream check, снятие MemoryDenyWriteExecute
+- Команда `tgwebproxyr doctor`
+
 ## 1.2.1 — 2026-08-22
 
 - Обход падения upstream `go test` (flake `TestLoadAcceptsSystemdCredentialReadPermissions` на части VPS)

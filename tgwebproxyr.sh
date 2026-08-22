@@ -35,6 +35,7 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr link         ссылки для Telegram
   tgwebproxyr logs         journalctl
   tgwebproxyr update       обновить relay
+  tgwebproxyr doctor       починить / дождаться ready
   tgwebproxyr reinstall    переустановка
   tgwebproxyr secret ...   show | rotate | add
   tgwebproxyr uninstall    удалить
@@ -128,6 +129,11 @@ main() {
       ;;
     update)
       TWPR_cmd_update "$@"
+      ;;
+    doctor|fix|repair)
+      TWPR_require_root
+      TWPR_load_state
+      TWPR_ensure_relay_ready
       ;;
     reinstall)
       TWPR_cmd_reinstall "$@"

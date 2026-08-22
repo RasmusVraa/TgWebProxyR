@@ -16,6 +16,127 @@ TWPR_patch_upstream_install() {
         "$inst"
     fi
   fi
+
+  # Upstream waits only 20s for readyz — often too short while mtproxy warms up
+  if grep -q 'attempt != 20' "$inst" && ! grep -q 'TWPR: ready wait' "$inst"; then
+    TWPR_info "Патчу upstream install.sh: longer ready-wait + soft fail"
+    sed -i 's/attempt != 20/attempt != 90/' "$inst"
+    # Replace hard exit with soft warning so our wrapper can recover
+    sed -i \
+      's/echo "tproxy-server did not become ready" >&2/echo "TWPR: ready wait — will recover"; true # was: tproxy-server did not become ready/' \
+      "$inst"
+    sed -i '/TWPR: ready wait/{n;s/exit 1/true # TWPR: soft fail/}' "$inst"
+  fi
+}
+
+TWPR_diagnose_relay() {
+  local admin="${TWPR_PORT_ADMIN:-8081}"
+  TWPR_warn "Диагностика tproxy-server / mtproxy:"
+  systemctl --no-pager --full status tproxy-firewall mtproxy tproxy-server caddy 2>&1 | tail -n 40 || true
+  echo ""
+  TWPR_info "journalctl tproxy-server (последние 40 строк):"
+  journalctl -u tproxy-server -u mtproxy -n 40 --no-pager 2>&1 || true
+  echo ""
+  TWPR_info "curl healthz/readyz:"
+  curl -sv --max-time 3 "http://127.0.0.1:${admin}/healthz" 2>&1 | tail -n 20 || true
+  curl -sv --max-time 3 "http://127.0.0.1:${admin}/readyz" 2>&1 | tail -n 20 || true
+}
+
+TWPR_ensure_relay_ready() {
+  local admin="${TWPR_PORT_ADMIN:-8081}"
+  local i
+
+  # Soften overly strict unit options that break Go on some hosts
+  if [[ -f /etc/systemd/system/tproxy-server.service ]]; then
+    if grep -q '^MemoryDenyWriteExecute=true' /etc/systemd/system/tproxy-server.service; then
+      TWPR_info "Снимаю MemoryDenyWriteExecute (часто ломает Go-бинарник)"
+      sed -i 's/^MemoryDenyWriteExecute=true/MemoryDenyWriteExecute=false/' \
+        /etc/systemd/system/tproxy-server.service
+      systemctl daemon-reload
+    fi
+  fi
+
+  # Ensure profiles permissions for LoadCredential
+  if [[ -f /etc/tproxy-server/profiles.json ]]; then
+    chown root:tproxy /etc/tproxy-server/profiles.json 2>/dev/null || true
+    chmod 0400 /etc/tproxy-server/profiles.json 2>/dev/null || true
+  fi
+  if [[ -f /etc/tproxy-server/config.json ]]; then
+    chown root:tproxy /etc/tproxy-server/config.json 2>/dev/null || true
+    chmod 0640 /etc/tproxy-server/config.json 2>/dev/null || true
+  fi
+
+  systemctl reset-failed tproxy-firewall mtproxy tproxy-server 2>/dev/null || true
+  systemctl start tproxy-firewall 2>/dev/null || true
+  systemctl restart mtproxy 2>/dev/null || true
+  sleep 2
+  systemctl restart tproxy-server 2>/dev/null || true
+
+  TWPR_info "Жду готовности relay (до 90с)…"
+  for i in $(seq 1 90); do
+    if curl -fsS --max-time 2 "http://127.0.0.1:${admin}/readyz" >/dev/null 2>&1; then
+      TWPR_ok "relay readyz OK (${i}s)"
+      return 0
+    fi
+    if (( i % 15 == 0 )); then
+      TWPR_info "ещё жду… (${i}s) healthz=$(curl -fsS --max-time 1 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1 && echo ok || echo fail)"
+      systemctl is-active mtproxy tproxy-server 2>/dev/null || true
+    fi
+    sleep 1
+  done
+
+  # Last resort: if healthz works but readyz doesn't — backend issue
+  if curl -fsS --max-time 2 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1; then
+    TWPR_warn "relay жив, но backend (mtproxy) не ready"
+    TWPR_info "Пробую ещё раз перезапустить mtproxy…"
+    systemctl restart mtproxy
+    sleep 5
+    systemctl restart tproxy-server
+    for i in $(seq 1 30); do
+      if curl -fsS --max-time 2 "http://127.0.0.1:${admin}/readyz" >/dev/null 2>&1; then
+        TWPR_ok "relay readyz OK после рестарта backend"
+        return 0
+      fi
+      sleep 1
+    done
+  fi
+
+  TWPR_diagnose_relay
+  return 1
+}
+
+TWPR_run_official_install() {
+  local args=(
+    --hostname "$TWPR_HOSTNAME"
+    --email "$TWPR_EMAIL"
+    --secret "$TWPR_SECRET"
+    --site-dir "$TWPR_SITE_DIR"
+    --mtproxy-workers "${TWPR_MTPROXY_WORKERS:-1}"
+    --mtproxy-max-connections "${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
+  )
+  local rc=0
+  TWPR_info "Официальный install (Caddy + MTProxy + relay) — это займёт несколько минут…"
+  TWPR_log "official install hostname=${TWPR_HOSTNAME}"
+  TWPR_patch_upstream_install
+  set +e
+  (
+    umask 077
+    cd "$TWPR_ENGINE_DIR"
+    bash ./deploy/install.sh "${args[@]}"
+  )
+  rc=$?
+  set -e
+
+  if [[ "$rc" -ne 0 ]]; then
+    TWPR_warn "upstream install код ${rc} — запускаю восстановление сервисов"
+  fi
+
+  if ! TWPR_ensure_relay_ready; then
+    TWPR_err "tproxy-server так и не стал ready"
+    TWPR_err "Пришлите вывод: journalctl -u tproxy-server -u mtproxy -n 80 --no-pager"
+    return 1
+  fi
+  return 0
 }
 
 TWPR_fetch_engine() {
@@ -32,6 +153,8 @@ TWPR_fetch_engine() {
     git clone --depth 1 --branch "$TWPR_ENGINE_REF" "$TWPR_ENGINE_REPO" "$TWPR_ENGINE_DIR"
   fi
   chmod +x "${TWPR_ENGINE_DIR}/deploy/"*.sh 2>/dev/null || true
+  # Always re-apply patches after fetch/reset
+  # (fresh clone restores stock install.sh)
   TWPR_patch_upstream_install
 }
 
@@ -39,7 +162,6 @@ TWPR_prepare_site() {
   local src="${TWPR_ROOT}/site"
   if [[ -f "${TWPR_SITE_DIR}/index.html" ]]; then
     TWPR_info "Сайт уже есть: ${TWPR_SITE_DIR} (оставляю как есть)"
-    # всё равно подставим hostname если плейсхолдер остался
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
       find "$TWPR_SITE_DIR" -type f \( -name '*.html' -o -name '*.txt' \) -print0 2>/dev/null \
         | xargs -0 sed -i "s/__HOSTNAME__/${TWPR_HOSTNAME}/g" 2>/dev/null || true
@@ -58,25 +180,6 @@ TWPR_prepare_site() {
   fi
   TWPR_ok "Стартовый сайт → ${TWPR_SITE_DIR}"
   TWPR_warn "Потом замените тексты на свои — одинаковые шаблоны легче зондировать"
-}
-
-TWPR_run_official_install() {
-  local args=(
-    --hostname "$TWPR_HOSTNAME"
-    --email "$TWPR_EMAIL"
-    --secret "$TWPR_SECRET"
-    --site-dir "$TWPR_SITE_DIR"
-    --mtproxy-workers "${TWPR_MTPROXY_WORKERS:-1}"
-    --mtproxy-max-connections "${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
-  )
-  TWPR_info "Официальный install (Caddy + MTProxy + relay) — это займёт несколько минут…"
-  TWPR_log "official install hostname=${TWPR_HOSTNAME}"
-  TWPR_patch_upstream_install
-  (
-    umask 077
-    cd "$TWPR_ENGINE_DIR"
-    bash ./deploy/install.sh "${args[@]}"
-  )
 }
 
 TWPR_wizard_check_system() {
