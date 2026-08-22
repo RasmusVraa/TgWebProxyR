@@ -62,22 +62,32 @@ TWPR_dashboard() {
     TWPR_banner
     TWPR_load_state
 
-    local st_relay st_mp st_caddy health="—"
-    st_relay="$(TWPR_service_state tproxy-server)"
-    st_mp="$(TWPR_service_state mtproxy)"
-    st_caddy="$(TWPR_service_state caddy)"
-    if curl -fsS --max-time 2 "http://127.0.0.1:${TWPR_PORT_ADMIN:-8081}/readyz" >/dev/null 2>&1; then
-      health="${C_GREEN}ready${C_RESET}"
-    elif curl -fsS --max-time 2 "http://127.0.0.1:${TWPR_PORT_ADMIN:-8081}/healthz" >/dev/null 2>&1; then
-      health="${C_YELLOW}alive / backend down${C_RESET}"
+    local st_relay st_mp st_caddy health mode_label
+    local hz
+
+    if TWPR_is_docker; then
+      mode_label="docker"
+      st_mp="$(TWPR_docker_container_state mtproxy)"
+      st_relay="$(TWPR_docker_container_state relay)"
+      st_caddy="$(TWPR_docker_container_state caddy)"
     else
-      health="${C_RED}down${C_RESET}"
+      mode_label="native"
+      st_relay="$(TWPR_service_state tproxy-server)"
+      st_mp="$(TWPR_service_state mtproxy)"
+      st_caddy="$(TWPR_service_state caddy)"
     fi
 
+    hz="$(TWPR_health_probe)"
+    case "$hz" in
+      ready) health="${C_GREEN}ready${C_RESET}" ;;
+      alive) health="${C_YELLOW}alive / backend down${C_RESET}" ;;
+      *)     health="${C_RED}down${C_RESET}" ;;
+    esac
+
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
-      echo -e "  host    ${C_BOLD}${TWPR_HOSTNAME}${C_RESET}"
-      echo -e "  ports   HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443} · relay ${TWPR_PORT_RELAY:-8080}"
-      echo -e "  relay   ${st_relay}   mtproxy ${st_mp}   caddy ${st_caddy}"
+      echo -e "  host    ${C_BOLD}${TWPR_HOSTNAME}${C_RESET}  ${C_DIM}(${mode_label})${C_RESET}"
+      echo -e "  ports   HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443}"
+      echo -e "  stack   $(TWPR_fmt_svc relay "$st_relay")  $(TWPR_fmt_svc mtproxy "$st_mp")  $(TWPR_fmt_svc caddy "$st_caddy")"
       echo -e "  health  ${health}"
     else
       echo -e "  ${C_YELLOW}Прокси ещё не настроен${C_RESET}"

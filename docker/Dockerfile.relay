@@ -1,6 +1,6 @@
 # Fast relay image — binary from GitHub Release (or docker/bin in CI)
 FROM alpine:3.20
-ARG TWPR_VERSION=1.4.3
+ARG TWPR_VERSION=1.4.4
 ARG USE_LOCAL_BIN=0
 RUN apk add --no-cache ca-certificates curl \
   && adduser -D -H -s /sbin/nologin tproxy \

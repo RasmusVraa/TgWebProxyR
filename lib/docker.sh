@@ -149,22 +149,32 @@ TWPR_docker_up() {
   if TWPR_docker_images_ready && [[ "${TWPR_DOCKER_BUILD:-0}" != "1" ]]; then
     TWPR_ok "Образы GHCR на месте — up без сборки"
     TWPR_docker_compose up -d --no-build --remove-orphans
-    return $?
+  else
+    # Быстрый fallback: docker build только скачивает бинарники с Releases
+    TWPR_warn "GHCR недоступен — быстрая сборка из release-бинарников v${ver}"
+    export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
+    TWPR_IMAGE_TAG="$ver"
+    if [[ -f "${TWPR_DOCKER_DIR}/.env" ]]; then
+      grep -q '^TWPR_IMAGE_TAG=' "${TWPR_DOCKER_DIR}/.env" \
+        && sed -i "s/^TWPR_IMAGE_TAG=.*/TWPR_IMAGE_TAG=${ver}/" "${TWPR_DOCKER_DIR}/.env" \
+        || echo "TWPR_IMAGE_TAG=${ver}" >>"${TWPR_DOCKER_DIR}/.env"
+    fi
+    TWPR_docker_compose build --parallel --build-arg "TWPR_VERSION=${ver}"
+    TWPR_docker_compose up -d --remove-orphans
   fi
 
-  # Быстрый fallback: docker build только скачивает бинарники с Releases (~десятки секунд)
-  TWPR_warn "GHCR недоступен — быстрая сборка из release-бинарников v${ver}"
-  export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
-  TWPR_IMAGE_TAG="$ver"
-  # подставим версию в .env для build-args
-  if [[ -f "${TWPR_DOCKER_DIR}/.env" ]]; then
-    grep -q '^TWPR_IMAGE_TAG=' "${TWPR_DOCKER_DIR}/.env" \
-      && sed -i "s/^TWPR_IMAGE_TAG=.*/TWPR_IMAGE_TAG=${ver}/" "${TWPR_DOCKER_DIR}/.env" \
-      || echo "TWPR_IMAGE_TAG=${ver}" >>"${TWPR_DOCKER_DIR}/.env"
-  fi
-  TWPR_docker_compose build --parallel \
-    --build-arg "TWPR_VERSION=${ver}"
-  TWPR_docker_compose up -d --remove-orphans
+  TWPR_info "Жду готовности relay…"
+  local i hz="down"
+  for i in $(seq 1 45); do
+    sleep 2
+    hz="$(TWPR_health_probe 2>/dev/null || echo down)"
+    [[ "$hz" == "ready" || "$hz" == "alive" ]] && break
+  done
+  case "$hz" in
+    ready) TWPR_ok "Стек ready" ;;
+    alive) TWPR_warn "Стек alive, backend ещё прогревается" ;;
+    *)     TWPR_warn "Стек поднят, но health пока down — tgwebproxyr docker logs" ;;
+  esac
 }
 
 TWPR_docker_install_engine() {
@@ -223,6 +233,11 @@ TWPR_docker_install_engine() {
 
   echo ""
   TWPR_ok "Docker-стек запущен"
+  # закрепим DEPLOY_MODE=docker в settings (на случай старых установок)
+  TWPR_DEPLOY_MODE="docker"
+  TWPR_save_state
+  TWPR_cmd_status
+  echo ""
   TWPR_cmd_link
   echo ""
   TWPR_info "Управление:  tgwebproxyr docker status|logs|down|up"

@@ -1,6 +1,77 @@
 #!/usr/bin/env bash
 # TgWebProxyR — status, health, links
 
+TWPR_docker_container_state() {
+  # имя compose-сервиса → running|unhealthy|exited|missing
+  local svc="$1" id st health
+  id="$(docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+        --env-file "${TWPR_ROOT}/docker/.env" ps -q "$svc" 2>/dev/null | head -1 || true)"
+  if [[ -z "$id" ]]; then
+    echo "missing"
+    return
+  fi
+  st="$(docker inspect -f '{{.State.Status}}' "$id" 2>/dev/null || echo missing)"
+  health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null || true)"
+  if [[ "$st" == "running" && "$health" == "unhealthy" ]]; then
+    echo "unhealthy"
+  elif [[ "$st" == "running" ]]; then
+    echo "running"
+  else
+    echo "${st:-missing}"
+  fi
+}
+
+TWPR_fmt_svc() {
+  local name="$1" st="$2"
+  case "$st" in
+    running|active) echo -e "${C_GREEN}${name}${C_RESET}" ;;
+    unhealthy|inactive) echo -e "${C_YELLOW}${name}:${st}${C_RESET}" ;;
+    *) echo -e "${C_RED}${name}:${st}${C_RESET}" ;;
+  esac
+}
+
+TWPR_health_probe() {
+  # печатает: ready | alive | down
+  local admin="${TWPR_PORT_ADMIN:-8081}"
+  if curl -fsS --max-time 2 "http://127.0.0.1:${admin}/readyz" >/dev/null 2>&1; then
+    echo ready
+    return 0
+  fi
+  if curl -fsS --max-time 2 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1; then
+    echo alive
+    return 0
+  fi
+  if TWPR_is_docker 2>/dev/null; then
+    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+      echo ready
+      return 0
+    fi
+    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+      echo alive
+      return 0
+    fi
+    # relay в network_mode service:mtproxy — пробуем через mtproxy
+    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T mtproxy curl -fsS --max-time 3 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+      echo ready
+      return 0
+    fi
+    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T mtproxy curl -fsS --max-time 3 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+      echo alive
+      return 0
+    fi
+  fi
+  echo down
+  return 1
+}
+
 TWPR_cmd_status() {
   TWPR_load_state
   local admin="${TWPR_PORT_ADMIN:-8081}"
@@ -8,29 +79,31 @@ TWPR_cmd_status() {
   echo -e "  ${C_BOLD}Статус сервисов${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 
-  if [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]]; then
-    TWPR_info "Режим: Docker Compose"
+  if TWPR_is_docker; then
+    TWPR_info "Режим: ${C_BOLD}Docker Compose${C_RESET}"
     if [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
       (cd "${TWPR_ROOT}/docker" && docker compose --env-file .env ps) 2>/dev/null || TWPR_warn "docker compose ps недоступен"
     else
       TWPR_warn "Нет ${TWPR_ROOT}/docker/.env — сначала: tgwebproxyr docker setup"
+      return 1
     fi
     echo ""
-    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
-         --env-file "${TWPR_ROOT}/docker/.env" \
-         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
-      TWPR_ok "relay readyz OK"
-    elif docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
-         --env-file "${TWPR_ROOT}/docker/.env" \
-         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
-      TWPR_warn "relay healthz OK, readyz ещё нет"
-    else
-      TWPR_warn "relay health недоступен"
-    fi
+    local hz
+    hz="$(TWPR_health_probe)"
+    case "$hz" in
+      ready) TWPR_ok "relay readyz OK (backend жив)" ;;
+      alive) TWPR_warn "relay healthz OK, readyz ещё нет" ;;
+      *)     TWPR_err "relay health недоступен — смотрите: tgwebproxyr docker logs" ;;
+    esac
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
       echo ""
       TWPR_info "Hostname: ${TWPR_HOSTNAME}"
       TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
+      if curl -fsSk --max-time 5 "https://${TWPR_HOSTNAME}/" -o /dev/null 2>/dev/null; then
+        TWPR_ok "HTTPS отвечает"
+      else
+        TWPR_warn "HTTPS с хоста не открылся (DNS/ACME/firewall?)"
+      fi
     fi
     return 0
   fi
@@ -50,16 +123,11 @@ TWPR_cmd_status() {
   TWPR_info "Порты: HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443} · relay ${TWPR_PORT_RELAY:-8080} · admin ${admin} · mtproxy ${TWPR_PORT_MTPROXY:-2398}"
 
   echo ""
-  if curl -fsS --max-time 3 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1; then
-    TWPR_ok "relay healthz OK"
-  else
-    TWPR_warn "relay healthz недоступен"
-  fi
-  if curl -fsS --max-time 3 "http://127.0.0.1:${admin}/readyz" >/dev/null 2>&1; then
-    TWPR_ok "relay readyz OK (backend жив)"
-  else
-    TWPR_warn "relay readyz = backend не готов"
-  fi
+  case "$(TWPR_health_probe)" in
+    ready) TWPR_ok "relay readyz OK (backend жив)" ;;
+    alive) TWPR_warn "relay healthz OK, backend не ready" ;;
+    *)     TWPR_warn "relay healthz недоступен" ;;
+  esac
 
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     echo ""
@@ -75,6 +143,9 @@ TWPR_cmd_status() {
 
 TWPR_cmd_link() {
   TWPR_load_state
+  if TWPR_is_docker; then
+    TWPR_docker_ensure_env 2>/dev/null || true
+  fi
   if [[ -z "${TWPR_HOSTNAME:-}" || -z "${TWPR_SECRET:-}" ]]; then
     TWPR_err "Прокси ещё не настроен. Запустите: tgwebproxyr setup"
     return 1
@@ -105,6 +176,11 @@ TWPR_cmd_metrics() {
 }
 
 TWPR_cmd_logs() {
+  TWPR_load_state
+  if TWPR_is_docker; then
+    TWPR_docker_compose logs --tail="${2:-80}" "${1:-}"
+    return
+  fi
   local unit="${1:-tproxy-server}"
   local lines="${2:-80}"
   journalctl -u "$unit" -u mtproxy -u caddy --no-pager -n "$lines"

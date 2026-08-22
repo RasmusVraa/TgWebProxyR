@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.4 — 2026-08-22
+
+- Дашборд понимает Docker (больше не пишет systemd missing/down)
+- Автодетект `TWPR_DEPLOY_MODE=docker` по `docker/.env`
+- Проброс `127.0.0.1:8081` для health с хоста
+- `tgwebproxyr logs/status` работают через compose
+
 ## 1.4.3 — 2026-08-22
 
 - Docker: mtproxy/relay/caddy в одном network namespace (tproxy требует loopback)
