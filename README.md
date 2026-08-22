@@ -1,65 +1,60 @@
 # TgWebProxyR
 
-## Этот скрипт навайбкоден, используйте с осторожностью!
+> **Этот скрипт навайбкоден — используйте с осторожностью.**
 
-**TgWebProxyR** — установщик и CLI-менеджер для нового типа прокси Telegram **WEB**.
+Установщик и CLI для Telegram-прокси типа **WEB**: домен на VPS выглядит как обычный сайт, а Desktop ходит через WebView-мост.
 
-Под капотом — официальный PoC [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server):
-публичный HTTPS-сайт + WebView-мост к локальному MTProxy. Для провайдера это
-обычный веб-трафик на ваш домен.
+Основа — официальный PoC [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server) + MTProxy. Клиент: **Telegram Desktop ≥ 7.1.1**, тип прокси **WEB**.
 
-> Нужен **Telegram Desktop 7.1.1+** (тип прокси **WEB**).
-
-📖 **Документация:** [GitHub Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало в репо [`docs/wiki/`](docs/wiki/)
-
+**Сейчас:** [v1.6.7](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.7) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
 
 ---
 
-## Навигация
+## Содержание
 
-- [Как это работает](#how)
-- [Установка](#install)
-- [Режимы: Docker / Native](#modes)
-- [Быстрый старт](#quickstart)
-- [Подключение в Telegram](#client)
+- [Схема](#схема)
+- [Установка](#установка)
+- [Быстрый старт](#быстрый-старт)
+- [Docker или Native](#docker-или-native)
+- [Пользователи и ссылки](#пользователи-и-ссылки)
+- [Telegram-бот](#telegram-бот)
+- [Shop API](#shop-api)
 - [CLI](#cli)
-- [Telegram-бот](#bot)
-- [Требования](#requirements)
-- [Безопасность](#security)
-- [Обновление и удаление](#ops)
-- [Устранение проблем](#troubleshoot)
-- [Благодарности](#thanks)
+- [Бэкапы](#бэкапы)
+- [Требования](#требования)
+- [Безопасность](#безопасность)
+- [Обновление](#обновление)
+- [Проблемы](#проблемы)
+- [Лицензия](#лицензия)
 
 ---
 
-<a id="how"></a>
-
-## Как это работает
+## Схема
 
 ```text
-Telegram Desktop 7.1.1+
-  тип прокси: WEB
-  hostname + MTProxy secret
+Telegram Desktop (WEB)
+  hostname + secret (32 hex)
         │
         ▼
-  WebView → HTTPS к вашему домену :443
+  HTTPS :443 → ваш домен
         │
         ▼
-  Caddy (TLS)
-        ├─ публичный сайт
-        └─ bridge → tproxy-server → MTProxy → Telegram DC
+  Caddy (TLS + сайт)
+        └─ bridge → tproxy-server (relay)
+                      └─ MTProxy :2398 → DC Telegram
 ```
 
-Ссылки:
+Ссылки вида:
 
 ```text
 tg://webproxy?server=proxy.example.com&secret=<32hex>
 https://t.me/webproxy?server=proxy.example.com&secret=<32hex>
 ```
 
----
+Несколько пользователей = несколько **secret** на одном hostname.  
+Реестр: `/etc/tgwebproxyr/profiles.json` → в **relay** и во все `-S` у **MTProxy**.
 
-<a id="install"></a>
+---
 
 ## Установка
 
@@ -69,119 +64,83 @@ wget -qO /tmp/twpr.sh \
   && sudo bash /tmp/twpr.sh
 ```
 
-Мастер спросит **режим** (Docker / Native) и домен + email. Secret сгенерируется сам.
+Мастер спросит режим (**Docker** / **Native**), домен и email для Let’s Encrypt. Secret для `default` сгенерируется сам.
 
 ### Без вопросов
 
 ```bash
-# Docker, быстро
+# Docker (рекомендуется)
 sudo TWPR_HOSTNAME=proxy.example.com \
      TWPR_EMAIL=you@example.com \
      TWPR_YES=1 bash /tmp/twpr.sh --docker --quick
 
-# Native (systemd + upstream)
+# Native (systemd, без Docker)
 sudo TWPR_HOSTNAME=proxy.example.com \
      TWPR_EMAIL=you@example.com \
      TWPR_YES=1 bash /tmp/twpr.sh --native --quick
 ```
 
-Флаги: `--docker` · `--native` · `--quick` · `--advanced` · `--yes`
+Флаги: `--docker` · `--native` · `--quick` · `--advanced` · `--hostname` · `--email` · `--yes`
 
 После установки:
 
 ```bash
 sudo tgwebproxyr          # меню
-# или (если зашли не под root и сделали source ~/.bashrc):
-tgwebproxyr
+sudo tgwebproxyr link     # ссылка default
 ```
 
 ---
 
-<a id="modes"></a>
-
-## Режимы: Docker / Native
-
-| | **Docker** *(по умолчанию)* | **Native** |
-| --- | --- | --- |
-| Что ставится | Caddy + relay + mtproxy в Compose | systemd-юниты upstream `tproxy-server` |
-| Образы | GHCR `ghcr.io/rasmusvraa/tgwebproxyr-*` | сборка/деплой на хосте |
-| Логи | `tgwebproxyr logs` / `docker compose logs` | `journalctl` |
-| Несколько профилей | `secret add` / profiles.json / бот / Shop API | то же |
-| Когда выбирать | быстрый старт, чистый VPS | полный контроль, без Docker |
-
-Сменить носитель на уже установленном сервере — переустановка через меню
-**«Установка / переустановка»** или `tgwebproxyr setup`.
-
----
-
-<a id="quickstart"></a>
-
 ## Быстрый старт
 
-1. DNS **A**: `proxy.example.com → IP_VPS` (без CDN).
-2. Откройте **TCP 80 и 443**.
-3. Установка (см. выше) → Docker · быстро.
-4. Ссылка: `sudo tgwebproxyr link`
-5. Telegram Desktop → **Settings → Advanced → Connection type → Add proxy → WEB**.
-
----
-
-<a id="client"></a>
-
-## Подключение в Telegram
+1. DNS **A**: `proxy.example.com → IP` (без Cloudflare/CDN на первом выпуске сертификата).
+2. Снаружи открыты **TCP 80 и 443**.
+3. Установка → Docker · быстро.
+4. `sudo tgwebproxyr link` → в Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
 
 | Поле | Значение |
 | --- | --- |
 | Тип | **WEB** |
-| Hostname | `proxy.example.com` (без `https://`, без порта) |
-| Secret | 32 hex |
+| Hostname | домен без `https://` и без порта |
+| Secret | 32 hex из `link` / бота |
 
-Порт и TLS фиксированы: всегда **443 / HTTPS**. Нужен Desktop **≥ 7.1.1**.
-
----
-
-<a id="cli"></a>
-
-## CLI
-
-Интерфейс в духе [MTProxyL](https://github.com/Liafanx/MTProxyL): меню + те же действия из командной строки.
-
-```bash
-tgwebproxyr                 # меню
-tgwebproxyr setup           # мастер
-tgwebproxyr start|stop|restart
-tgwebproxyr status
-tgwebproxyr link
-tgwebproxyr logs
-tgwebproxyr doctor
-
-tgwebproxyr secret list|show|link|rotate|add|rename|remove|apply
-tgwebproxyr metrics
-tgwebproxyr api setup|token|status
-tgwebproxyr bot setup|update|menu
-tgwebproxyr backup create|list|restore|auto
-tgwebproxyr docker setup|up|down|pull|logs
-tgwebproxyr update
-tgwebproxyr uninstall
-```
-
-### Установка с аргументами
-
-```bash
-tgwebproxyr setup --docker --quick
-tgwebproxyr setup --native --advanced \
-  --hostname proxy.example.com --email you@ex.com --yes
-```
-
-Полный справочник — в [Wiki → CLI](https://github.com/RasmusVraa/TgWebProxyR/wiki/CLI).
-
-Состояние: `/etc/tgwebproxyr/settings.env`  
-Сайт: `/srv/tproxy-site`  
-Docker: `/opt/tgwebproxyr/docker/`
+Порт всегда **443**. Нужен Desktop **≥ 7.1.1**.
 
 ---
 
-<a id="bot"></a>
+## Docker или Native
+
+| | Docker *(по умолчанию)* | Native |
+| --- | --- | --- |
+| Стек | Compose: mtproxy + relay + caddy | systemd upstream |
+| Образы | `ghcr.io/rasmusvraa/tgwebproxyr-*` | сборка на хосте |
+| Несколько пользователей | да (`secret add` / бот / API) | да |
+| Когда | чистый VPS, быстрый старт | без Docker, полный контроль |
+
+Смена режима на уже установленном сервере — бэкап и `tgwebproxyr setup` заново.
+
+Подробнее: [Wiki → Docker vs Native](https://github.com/RasmusVraa/TgWebProxyR/wiki/Docker-vs-Native).
+
+---
+
+## Пользователи и ссылки
+
+Профиль **`default`** — основной secret установки. Остальные — именованные пользователи.
+
+```bash
+sudo tgwebproxyr secret list
+sudo tgwebproxyr secret add alice          # имя → secret → apply
+sudo tgwebproxyr secret link alice
+sudo tgwebproxyr secret rename alice bob
+sudo tgwebproxyr secret remove bob
+sudo tgwebproxyr secret apply              # перечитать реестр в движок
+sudo tgwebproxyr metrics                   # сессии / байты (:8081)
+```
+
+После `add` / `remove` / `rename` профили сами уходят в relay **и** в MTProxy (несколько `-S`).  
+Если новый пользователь не коннектится — `secret apply` и в логах mtproxy строка `mtproxy -S count: N`.
+
+---
 
 ## Telegram-бот
 
@@ -189,11 +148,99 @@ Docker: `/opt/tgwebproxyr/docker/`
 sudo tgwebproxyr bot setup
 ```
 
-Только **token** → откройте бота → `/start` — admin id подхватится сам.
+1. Token у [@BotFather](https://t.me/BotFather).  
+2. Откройте бота → `/start` — admin id подставится сам.  
+
+В боте: статус, прокси start/stop, пользователи (с именами), ссылки, логи, трафик, бэкапы.
+
+```bash
+sudo tgwebproxyr bot update    # обновить код бота
+sudo tgwebproxyr bot logs
+```
+
+Wiki: [Bot](https://github.com/RasmusVraa/TgWebProxyR/wiki/Bot).
 
 ---
 
-<a id="requirements"></a>
+## Shop API
+
+REST для магазина / своего скрипта (только `127.0.0.1`, Bearer-token):
+
+```bash
+sudo tgwebproxyr api setup
+sudo tgwebproxyr api token
+```
+
+Примеры:
+
+```bash
+TOKEN=$(sudo tgwebproxyr api token)
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8787/v1/users
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"shop_user1"}' \
+  http://127.0.0.1:8787/v1/users
+```
+
+Эндпоинты: users CRUD, link, traffic, status.  
+Wiki: [API](https://github.com/RasmusVraa/TgWebProxyR/wiki/API).
+
+---
+
+## CLI
+
+Меню в духе [MTProxyL](https://github.com/Liafanx/MTProxyL) + те же команды из shell:
+
+```bash
+tgwebproxyr                      # интерактивное меню
+tgwebproxyr setup                # мастер
+tgwebproxyr start|stop|restart
+tgwebproxyr status
+tgwebproxyr health               # healthz / readyz / HTTPS
+tgwebproxyr link
+tgwebproxyr logs [svc] [n]
+tgwebproxyr doctor
+
+tgwebproxyr secret list|show|link|rotate|add|rename|remove|apply
+tgwebproxyr metrics [--raw]
+tgwebproxyr api setup|token|status|logs
+tgwebproxyr bot setup|update|status|restart|logs
+tgwebproxyr backup create|list|restore|auto
+tgwebproxyr docker setup|up|down|pull|logs|status
+tgwebproxyr update
+tgwebproxyr uninstall
+```
+
+| Путь | Назначение |
+| --- | --- |
+| `/opt/tgwebproxyr` | код менеджера |
+| `/etc/tgwebproxyr/settings.env` | hostname, режим, порты |
+| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets |
+| `/etc/tgwebproxyr/bot.env` | бот |
+| `/etc/tgwebproxyr/api.env` | Shop API token |
+| `/srv/tproxy-site` | публичный сайт |
+| `/opt/tgwebproxyr/docker/` | Compose |
+| `/opt/tgwebproxyr/backups/` | архивы |
+
+Полный справочник: [Wiki → CLI](https://github.com/RasmusVraa/TgWebProxyR/wiki/CLI).
+
+---
+
+## Бэкапы
+
+```bash
+sudo tgwebproxyr backup create
+sudo tgwebproxyr backup list
+sudo tgwebproxyr backup restore twpr-….tar.gz
+sudo tgwebproxyr backup auto daily     # hourly|daily|monthly|off
+```
+
+При создании архив можно слать админу в Telegram (настраивается в боте / `backup auto send`).
+
+---
 
 ## Требования
 
@@ -201,60 +248,62 @@ sudo tgwebproxyr bot setup
 | --- | --- |
 | ОС | Ubuntu 22.04+ / Debian 12+ |
 | CPU | **x86_64** |
-| Сеть | публичный IPv4, DNS A, без CDN на первом деплое |
+| Сеть | публичный IPv4, DNS A |
 | Порты | 80, 443 снаружи |
 | Права | root |
 | Клиент | Telegram Desktop **≥ 7.1.1** |
+| Docker-режим | Docker Engine + Compose plugin |
 
 ---
 
-<a id="security"></a>
-
 ## Безопасность
 
-- Снаружи только 80/443 (Caddy).
-- Relay / admin / MTProxy — loopback (в Docker — общий network namespace).
-- Profiles / `.env` с secret — режим `0600`/`0400`.
-- Не ставьте CDN перед первым ACME.
+- Снаружи только **80/443** (Caddy).
+- Relay, admin `:8081` и MTProxy — на loopback (в Docker — общий network namespace).
+- Shop API слушает **127.0.0.1:8787** — наружу только через свой reverse proxy, если нужно.
+- `profiles.json` / `.env` / `api.env` — права `0600` / `0400`.
+- Не вешайте CDN до первого успешного ACME.
 
-Публичный сайт — стартовый шаблон «Northwind»; замените тексты на свои
+Публичный сайт — стартовый шаблон; замените тексты  
 ([PUBLIC_SITE.md](https://github.com/telegramdesktop/tproxy-server/blob/master/PUBLIC_SITE.md)).
 
 ---
 
-<a id="ops"></a>
-
-## Обновление и удаление
+## Обновление
 
 ```bash
-sudo tgwebproxyr update      # образы / native engine
-sudo tgwebproxyr uninstall
+sudo tgwebproxyr update
+# или вручную с релиза:
+sudo wget -qO /tmp/twpr.tgz \
+  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.7.tar.gz
+sudo tar -xzf /tmp/twpr.tgz -C /opt/tgwebproxyr --strip-components=1
+sudo tgwebproxyr secret apply
+sudo tgwebproxyr bot update
 ```
 
+Удаление: `sudo tgwebproxyr uninstall`.
+
 ---
 
-<a id="troubleshoot"></a>
+## Проблемы
 
-## Устранение проблем
-
-| Симптом | Что проверить |
+| Симптом | Что сделать |
 | --- | --- |
-| Нет сертификата | A/AAAA, 80/443, нет CDN |
-| health down | `tgwebproxyr status` · `tgwebproxyr logs` · `tgwebproxyr doctor` |
-| Connecting… | Desktop ≥ 7.1.1, hostname+secret совпадают |
+| Нет сертификата | A/AAAA, 80/443 открыты, нет CDN |
+| health / metrics down | `tgwebproxyr health` · `logs` · `doctor` |
+| Connecting… / web transport | Desktop ≥ 7.1.1, hostname+secret, HTTPS сайта |
+| Новый пользователь не работает | `secret apply`; в логах mtproxy ` -S count: N` |
 | Не x86_64 | нужен amd64 VPS |
 
-Подробнее: [Wiki → Troubleshooting](https://github.com/RasmusVraa/TgWebProxyR/wiki/Troubleshooting).
+Подробнее: [Troubleshooting](https://github.com/RasmusVraa/TgWebProxyR/wiki/Troubleshooting).
 
 ---
-
-<a id="thanks"></a>
 
 ## Благодарности
 
 - [telegramdesktop/tproxy-server](https://github.com/telegramdesktop/tproxy-server)
 - [TelegramMessenger/MTProxy](https://github.com/TelegramMessenger/MTProxy)
-- UX CLI вдохновлён [MTProxyL](https://github.com/Liafanx/MTProxyL) — отдельный проект под тип **WEB**
+- UX CLI вдохновлён [MTProxyL](https://github.com/Liafanx/MTProxyL) — это отдельный проект под тип **WEB**
 
 ## Лицензия
 
