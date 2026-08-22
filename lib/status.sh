@@ -210,40 +210,27 @@ TWPR_cmd_metrics() {
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 
   local sessions="" bytes_in="" bytes_out=""
-  # распространённые имена из prometheus-экспорта tproxy-server
+  # глобальные (без label {profile=…})
   sessions="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && $1 ~ /tproxy_sessions_live|sessions_live|(^|_)(sessions|active_sessions)(_|$|{)/ {
-      print $NF; exit
-    }')"
+    /^[^#]/ && $1 == "tproxy_sessions_live" { print $NF; exit }
+  ')"
   bytes_in="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && tolower($1) ~ /(bytes_down|bytes_in|rx_bytes|received_bytes|ingress_bytes)/ {
-      print $NF; exit
-    }')"
+    /^[^#]/ && $1 == "tproxy_bytes_down_total" { print $NF; exit }
+  ')"
   bytes_out="$(printf '%s\n' "$body" | awk '
-    /^[^#]/ && tolower($1) ~ /(bytes_up|bytes_out|tx_bytes|sent_bytes|egress_bytes)/ {
-      print $NF; exit
-    }')"
-
-  # суммируем любые *bytes* если явных in/out нет
-  if [[ -z "$bytes_in$bytes_out" ]]; then
-    local sum
-    sum="$(printf '%s\n' "$body" | awk '
-      /^[^#]/ && tolower($1) ~ /bytes/ { s+=$NF }
-      END { if (s>0) print s }
-    ')"
-    [[ -n "$sum" ]] && bytes_in="$sum"
-  fi
+    /^[^#]/ && $1 == "tproxy_bytes_up_total" { print $NF; exit }
+  ')"
 
   if [[ -n "$sessions" ]]; then
     TWPR_ok "активные сессии  ${sessions}"
   else
     TWPR_info "сессии            — (нет метки в /metrics)"
   fi
-  if [[ -n "$bytes_in" ]]; then
-    TWPR_ok "вход / всего      $(TWPR_human_bytes "${bytes_in%.*}")"
-  fi
   if [[ -n "$bytes_out" ]]; then
-    TWPR_ok "исходящий         $(TWPR_human_bytes "${bytes_out%.*}")"
+    TWPR_ok "всего ↑           $(TWPR_human_bytes "${bytes_out%.*}")"
+  fi
+  if [[ -n "$bytes_in" ]]; then
+    TWPR_ok "всего ↓           $(TWPR_human_bytes "${bytes_in%.*}")"
   fi
 
   if [[ -f "${TWPR_STATE_DIR}/profiles.json" ]] && command -v jq >/dev/null 2>&1; then
@@ -251,9 +238,43 @@ TWPR_cmd_metrics() {
   fi
 
   echo ""
+  echo -e "  ${C_BOLD}По пользователям${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  local per_lines
+  per_lines="$(printf '%s\n' "$body" | awk '
+    /^[^#]/ && index($1, "{profile=") {
+      split($1, a, "profile=\"")
+      if (length(a) < 2) next
+      split(a[2], b, "\"")
+      name = b[1]
+      if (name == "") next
+      if (index($1, "tproxy_sessions_live{") == 1) sess[name] = $NF
+      else if (index($1, "tproxy_bytes_up_total{") == 1) up[name] = $NF
+      else if (index($1, "tproxy_bytes_down_total{") == 1) down[name] = $NF
+      if (!(name in order)) { order[name] = ++n; names[n] = name }
+    }
+    END {
+      if (n == 0) exit
+      for (i = 1; i <= n; i++) {
+        p = names[i]
+        printf "%s\t%s\t%s\t%s\n", p, sess[p]+0, up[p]+0, down[p]+0
+      }
+    }
+  ')"
+  if [[ -z "${per_lines}" ]]; then
+    TWPR_info "нет per-profile метрик (нужен relay ≥1.6.12)"
+  else
+    while IFS=$'\t' read -r pname psess pup pdown; do
+      [[ -z "$pname" ]] && continue
+      TWPR_ok "$(printf '%-16s sess=%-4s ↑ %-10s ↓ %s' \
+        "$pname" "$psess" \
+        "$(TWPR_human_bytes "${pup%.*}")" \
+        "$(TWPR_human_bytes "${pdown%.*}")")"
+    done <<< "$per_lines"
+  fi
+
+  echo ""
   TWPR_info "Сырой экспорт: tgwebproxyr metrics --raw"
-  # короткий сниппет полезных строк
-  printf '%s\n' "$body" | awk '/^[^#]/ && (tolower($0) ~ /(session|byte|traffic|stream|conn)/) {print "  "$0}' | head -n 20
 }
 
 TWPR_cmd_logs() {

@@ -493,6 +493,33 @@ def _human_bytes(n: float) -> str:
     return f"{v:.1f} {units[i]}"
 
 
+def _parse_prom_line(ln: str) -> tuple[str, dict[str, str], float] | None:
+    """metric{label=\"v\"} 123 → (metric, labels, value)"""
+    ln = ln.strip()
+    if not ln or ln.startswith("#"):
+        return None
+    parts = ln.rsplit(None, 1)
+    if len(parts) != 2:
+        return None
+    left, val_s = parts
+    try:
+        val = float(val_s)
+    except ValueError:
+        return None
+    labels: dict[str, str] = {}
+    name = left
+    if "{" in left and left.endswith("}"):
+        name, rest = left.split("{", 1)
+        rest = rest[:-1]
+        for piece in rest.split(","):
+            piece = piece.strip()
+            if "=" not in piece:
+                continue
+            k, v = piece.split("=", 1)
+            labels[k.strip()] = v.strip().strip('"')
+    return name, labels, val
+
+
 def text_traffic() -> str:
     users = load_profiles()
     raw = _fetch_metrics()
@@ -513,51 +540,69 @@ def text_traffic() -> str:
             lines.append("<i>Проверьте: <code>tgwebproxyr health</code></i>")
         return "\n".join(lines)
 
-    sessions = None
-    streams = None
-    bytes_up = None
-    bytes_down = None
-    extra: dict[str, float] = {}
+    global_up = global_down = None
+    global_sessions = None
+    per: dict[str, dict[str, float]] = {}
+
     for ln in raw.splitlines():
-        if not ln or ln.startswith("#"):
+        parsed = _parse_prom_line(ln)
+        if not parsed:
             continue
-        parts = ln.split()
-        if len(parts) < 2:
+        name, labels, val = parsed
+        low = name.lower()
+        prof = labels.get("profile")
+        if prof:
+            slot = per.setdefault(prof, {})
+            if "sessions_live" in low:
+                slot["sessions"] = val
+            elif "streams_live" in low:
+                slot["streams"] = val
+            elif "bytes_up" in low:
+                slot["up"] = val
+            elif "bytes_down" in low:
+                slot["down"] = val
             continue
-        key, val = parts[0], parts[-1]
-        try:
-            num = float(val)
-        except ValueError:
-            continue
-        low = key.lower()
-        if "sessions_live" in low or low.endswith("_sessions") or low == "tproxy_sessions_live":
-            sessions = num
-        elif "streams_live" in low:
-            streams = num
-        elif "bytes_up" in low:
-            bytes_up = num
-        elif "bytes_down" in low:
-            bytes_down = num
-        elif "byte" in low or "pending_bytes" in low:
-            extra[key] = num
+        if "sessions_live" in low and "{" not in ln:
+            global_sessions = val
+        elif "bytes_up" in low and "{" not in ln:
+            global_up = val
+        elif "bytes_down" in low and "{" not in ln:
+            global_down = val
 
-    if sessions is not None:
-        lines.append(f"Сессии (live): <b>{int(sessions)}</b>")
-    if streams is not None:
-        lines.append(f"Потоки (live): <b>{int(streams)}</b>")
-    if bytes_up is not None:
-        lines.append(f"↑ up: <b>{_human_bytes(bytes_up)}</b>")
-    if bytes_down is not None:
-        lines.append(f"↓ down: <b>{_human_bytes(bytes_down)}</b>")
-    if bytes_up is None and bytes_down is None and extra:
-        lines.append("")
-        for k in sorted(extra, key=lambda x: -extra[x])[:6]:
-            lines.append(f"• <code>{esc(k)}</code>: <b>{_human_bytes(extra[k])}</b>")
-    if sessions is None and bytes_up is None and not extra:
-        snippet = "\n".join(ln for ln in raw.splitlines() if ln and not ln.startswith("#"))[:500]
-        lines.append(f"\n<pre>{esc(snippet)}</pre>")
+    if global_sessions is not None:
+        lines.append(f"Всего сессий: <b>{int(global_sessions)}</b>")
+    if global_up is not None or global_down is not None:
+        up_s = _human_bytes(global_up or 0)
+        down_s = _human_bytes(global_down or 0)
+        lines.append(f"Всего ↑ <b>{up_s}</b> · ↓ <b>{down_s}</b>")
 
-    lines.append("\n<i>Счётчики tproxy-server (глобальные).</i>")
+    lines.append("")
+    lines.append("<b>По пользователям</b>")
+    if not per:
+        lines.append(
+            "<i>Нет per-profile метрик — нужен relay из релиза ≥1.6.12 "
+            "(<code>tgwebproxyr update</code> + recreate).</i>"
+        )
+        for p in users:
+            lines.append(f"• <b>{esc(p.get('name'))}</b> —")
+    else:
+        # порядок как в реестре, потом остальные из метрик
+        ordered = [str(p.get("name")) for p in users]
+        for name in list(per.keys()):
+            if name not in ordered:
+                ordered.append(name)
+        for name in ordered:
+            slot = per.get(name) or {}
+            sess = int(slot.get("sessions", 0))
+            up = slot.get("up", 0.0)
+            down = slot.get("down", 0.0)
+            mark = "🟢" if sess > 0 else "○"
+            lines.append(
+                f"{mark} <b>{esc(name)}</b> · sess <code>{sess}</code> · "
+                f"↑ {_human_bytes(up)} · ↓ {_human_bytes(down)}"
+            )
+
+    lines.append("\n<i>Счётчики с момента старта relay (накопительные).</i>")
     return "\n".join(lines)
 
 

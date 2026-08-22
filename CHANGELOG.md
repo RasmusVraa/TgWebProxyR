@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.12 — 2026-08-22
+
+- Трафик **по каждому пользователю** (сессии / ↑ / ↓) в боте, `tgwebproxyr metrics` и Shop API
+- Relay: патч tproxy-server — метрики `tproxy_*{profile="…"}` (сборка CI + native fetch)
+- Docker/Native: MTProxy автоматически получает `--nat-info local:public` (fix [#2](https://github.com/RasmusVraa/TgWebProxyR/issues/2)); override `MTPROXY_NAT_INFO` / `MTPROXY_EXTERNAL_IP`
+
 ## 1.6.11 — 2026-08-22
 
 - Фикс: relay unhealthy — `admin_listen` снова только loopback (tproxy-server так требует)

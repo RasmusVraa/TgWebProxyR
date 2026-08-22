@@ -35,7 +35,7 @@ tgwebproxyr bot menu
 | Пользователи | список, карточка, ➕ с именем, rename, delete |
 | Ссылки | tg:// и https://t.me/webproxy по страницам |
 | Логи | хвост journalctl / compose |
-| Трафик | сессии и байты из `:8081/metrics` |
+| Трафик | всего + **по каждому пользователю** (↑/↓/сессии) из `:8081/metrics` |
 | Бэкапы | создать, авто (hourly/daily/monthly), restore |
 
 Команды: `/menu` `/status` `/proxy` `/users` `/links` `/logs` `/traffic` `/backups`.

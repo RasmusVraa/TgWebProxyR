@@ -55,6 +55,27 @@ sudo tgwebproxyr secret apply
 
 Подробнее: [[Users]].
 
+## MTProxy не ходит в Telegram (Updating… / Docker)
+
+За NAT или в Docker MTProxy нужен `--nat-info local:public`. С **v1.6.12** entrypoint/wrapper выставляют его сами; в логах:
+
+```bash
+sudo tgwebproxyr docker logs mtproxy 30
+# >> mtproxy --nat-info 172.18.0.2:1.2.3.4
+```
+
+Вручную (если авто-IP неверен):
+
+```bash
+# в /opt/tgwebproxyr/docker/.env или settings.env
+MTPROXY_NAT_INFO=192.168.1.10:203.0.113.5
+# или только внешний:
+MTPROXY_EXTERNAL_IP=203.0.113.5
+# отключить:
+MTPROXY_NAT_INFO=off
+sudo tgwebproxyr secret apply   # Docker: recreate стека
+```
+
 ## Pull образов «завис»
 
 С v1.5.1 есть живой прогресс:

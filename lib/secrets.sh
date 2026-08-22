@@ -124,6 +124,36 @@ if [[ ${#args[@]} -le 4 ]]; then
   echo "twpr-mtproxy: нет секретов" >&2
   exit 1
 fi
+
+# --nat-info local:global (за NAT без этого MTProxy часто не ходит в Telegram)
+nat="${MTPROXY_NAT_INFO:-${TWPR_MTPROXY_NAT_INFO:-}}"
+case "$nat" in off|OFF|none|NONE|0|false|FALSE) nat="" ;; esac
+ipv4() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && echo "$1"; }
+if [[ -z "$nat" ]]; then
+  lip="${MTPROXY_INTERNAL_IP:-}"
+  lip="$(ipv4 "$lip" || true)"
+  if [[ -z "$lip" ]] && command -v ip >/dev/null 2>&1; then
+    lip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1);exit}}')"
+    lip="$(ipv4 "$lip" || true)"
+  fi
+  gip="${MTPROXY_EXTERNAL_IP:-${TWPR_PUBLIC_IP:-}}"
+  gip="$(ipv4 "$gip" || true)"
+  if [[ -z "$gip" ]]; then
+    for url in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com; do
+      gip="$(curl -fsS --max-time 5 "$url" 2>/dev/null | tr -d '[:space:]' || true)"
+      gip="$(ipv4 "$gip" || true)"
+      [[ -n "$gip" ]] && break
+    done
+  fi
+  if [[ -n "$lip" && -n "$gip" && "$lip" != "$gip" ]]; then
+    nat="${lip}:${gip}"
+  fi
+fi
+if [[ -n "$nat" ]]; then
+  echo "twpr-mtproxy: --nat-info ${nat}" >&2
+  args+=(--nat-info "$nat")
+fi
+
 exec "$BIN" "${args[@]}" \
   --aes-pwd /etc/mtproxy/proxy-secret \
   /etc/mtproxy/proxy-multi.conf \

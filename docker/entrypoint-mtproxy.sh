@@ -65,6 +65,64 @@ fi
 
 echo ">> mtproxy -S count: $(wc -l <"$SECRETS_FILE" | tr -d ' ')"
 
+# --nat-info local:global — без этого за Docker/NAT часто «Updating…» / нет связи с DC
+# Override: MTPROXY_NAT_INFO=local:global | off
+detect_ipv4() {
+  echo "$1" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true
+}
+
+detect_local_ip() {
+  lip=""
+  if command -v ip >/dev/null 2>&1; then
+    lip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+  fi
+  lip="$(detect_ipv4 "$lip")"
+  if [ -z "$lip" ]; then
+    lip="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' | head -n 1 || true)"
+  fi
+  echo "$lip"
+}
+
+detect_public_ip() {
+  # явный override
+  gip="$(detect_ipv4 "${MTPROXY_EXTERNAL_IP:-${TWPR_PUBLIC_IP:-}}")"
+  if [ -n "$gip" ]; then
+    echo "$gip"
+    return 0
+  fi
+  for url in \
+    "https://api.ipify.org" \
+    "https://ifconfig.me/ip" \
+    "https://icanhazip.com"; do
+    gip="$(curl -fsS --max-time 5 "$url" 2>/dev/null | tr -d '[:space:]' || true)"
+    gip="$(detect_ipv4 "$gip")"
+    if [ -n "$gip" ]; then
+      echo "$gip"
+      return 0
+    fi
+  done
+  return 1
+}
+
+NAT_INFO="${MTPROXY_NAT_INFO:-${TWPR_MTPROXY_NAT_INFO:-}}"
+case "$NAT_INFO" in
+  off|OFF|none|NONE|0|false|FALSE) NAT_INFO="" ;;
+  "")
+    LOCAL_IP="$(detect_local_ip)"
+    # INTERNAL_IP override
+    [ -n "${MTPROXY_INTERNAL_IP:-}" ] && LOCAL_IP="$(detect_ipv4 "$MTPROXY_INTERNAL_IP")"
+    GLOBAL_IP="$(detect_public_ip || true)"
+    if [ -n "$LOCAL_IP" ] && [ -n "$GLOBAL_IP" ] && [ "$LOCAL_IP" != "$GLOBAL_IP" ]; then
+      NAT_INFO="${LOCAL_IP}:${GLOBAL_IP}"
+    elif [ -n "$LOCAL_IP" ] && [ -n "$GLOBAL_IP" ]; then
+      echo ">> nat-info skip (local==public ${LOCAL_IP})"
+    else
+      echo ">> WARN: cannot auto-detect nat-info (local=${LOCAL_IP:-?} public=${GLOBAL_IP:-?})"
+      echo ">> set MTPROXY_NAT_INFO=LOCAL:PUBLIC or MTPROXY_EXTERNAL_IP=…"
+    fi
+    ;;
+esac
+
 # POSIX: собрать argv
 set -- /opt/MTProxy/objs/bin/mtproto-proxy \
   -u mtproxy \
@@ -75,6 +133,11 @@ while read -r ns; do
   [ -n "$ns" ] || continue
   set -- "$@" -S "$ns"
 done <"$SECRETS_FILE"
+
+if [ -n "$NAT_INFO" ]; then
+  echo ">> mtproxy --nat-info ${NAT_INFO}"
+  set -- "$@" --nat-info "$NAT_INFO"
+fi
 
 set -- "$@" \
   --aes-pwd "${CFG}/proxy-secret" \

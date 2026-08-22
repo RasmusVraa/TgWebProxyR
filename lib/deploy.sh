@@ -249,6 +249,11 @@ TWPR_fetch_engine() {
   # Always re-apply patches after fetch/reset
   # (fresh clone restores stock install.sh)
   TWPR_patch_upstream_install
+  if [[ -f "${TWPR_ROOT}/scripts/patch-tproxy-per-profile-metrics.py" ]]; then
+    TWPR_info "Патч per-profile metrics…"
+    python3 "${TWPR_ROOT}/scripts/patch-tproxy-per-profile-metrics.py" "$TWPR_ENGINE_DIR" \
+      || TWPR_warn "per-profile metrics patch не применился"
+  fi
 }
 
 TWPR_prepare_site() {

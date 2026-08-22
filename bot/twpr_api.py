@@ -109,27 +109,72 @@ def fetch_metrics() -> str:
         return ""
 
 
+def _parse_prom_line(ln: str) -> tuple[str, dict[str, str], float] | None:
+    ln = ln.strip()
+    if not ln or ln.startswith("#"):
+        return None
+    parts = ln.rsplit(None, 1)
+    if len(parts) != 2:
+        return None
+    left, val_s = parts
+    try:
+        val = float(val_s)
+    except ValueError:
+        return None
+    labels: dict[str, str] = {}
+    name = left
+    if "{" in left and left.endswith("}"):
+        name, rest = left.split("{", 1)
+        rest = rest[:-1]
+        for piece in rest.split(","):
+            piece = piece.strip()
+            if "=" not in piece:
+                continue
+            k, v = piece.split("=", 1)
+            labels[k.strip()] = v.strip().strip('"')
+    return name, labels, val
+
+
 def parse_traffic(metrics: str) -> dict[str, Any]:
-    """Глобальные счётчики из prometheus-like /metrics (если есть)."""
-    out: dict[str, Any] = {"raw_lines": 0, "sessions": None, "bytes": {}}
+    """Глобальные + per-profile счётчики из /metrics."""
+    out: dict[str, Any] = {
+        "raw_lines": 0,
+        "sessions": None,
+        "bytes_up": None,
+        "bytes_down": None,
+        "users": [],
+        "bytes": {},
+    }
     if not metrics:
         return out
     lines = [ln for ln in metrics.splitlines() if ln and not ln.startswith("#")]
     out["raw_lines"] = len(lines)
+    per: dict[str, dict[str, float]] = {}
     for ln in lines:
-        parts = ln.split()
-        if len(parts) < 2:
+        parsed = _parse_prom_line(ln)
+        if not parsed:
             continue
-        key, val = parts[0], parts[-1]
-        try:
-            num: float | int = float(val) if "." in val else int(val)
-        except ValueError:
+        name, labels, num = parsed
+        low = name.lower()
+        prof = labels.get("profile")
+        if prof:
+            slot = per.setdefault(prof, {"name": prof, "sessions": 0, "bytes_up": 0, "bytes_down": 0})
+            if "sessions_live" in low:
+                slot["sessions"] = num
+            elif "bytes_up" in low:
+                slot["bytes_up"] = num
+            elif "bytes_down" in low:
+                slot["bytes_down"] = num
             continue
-        low = key.lower()
-        if "session" in low and ("live" in low or "active" in low or "current" in low or low.endswith("_sessions")):
+        if low == "tproxy_sessions_live":
             out["sessions"] = num
-        if "byte" in low or "traffic" in low or "bytes" in low:
-            out["bytes"][key] = num
+        elif low == "tproxy_bytes_up_total":
+            out["bytes_up"] = num
+        elif low == "tproxy_bytes_down_total":
+            out["bytes_down"] = num
+        if "byte" in low:
+            out["bytes"][name] = num
+    out["users"] = sorted(per.values(), key=lambda u: str(u["name"]))
     return out
 
 

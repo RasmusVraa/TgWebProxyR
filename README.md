@@ -134,7 +134,7 @@ sudo tgwebproxyr secret link alice
 sudo tgwebproxyr secret rename alice bob
 sudo tgwebproxyr secret remove bob
 sudo tgwebproxyr secret apply              # перечитать реестр в движок
-sudo tgwebproxyr metrics                   # сессии / байты (:8081)
+sudo tgwebproxyr metrics                   # всего + по пользователям (:8081)
 ```
 
 После `add` / `remove` / `rename` профили сами уходят в relay **и** в MTProxy (несколько `-S`).  
@@ -318,8 +318,10 @@ sudo tgwebproxyr bot update
 | Нет сертификата | A/AAAA, 80/443 открыты, нет CDN |
 | health / metrics down | `tgwebproxyr health` · `logs` · `doctor` |
 | Трафик в боте пустой, health OK | Docker ≥1.6.11 (socat admin-proxy); `tgwebproxyr update` |
+| Нет трафика по пользователям | relay ≥1.6.12 (патч metrics); `tgwebproxyr update` |
 | Connecting… / web transport | Desktop ≥ 7.1.1, hostname+secret, HTTPS сайта |
 | Новый пользователь не работает | `secret apply`; в логах mtproxy ` -S count: N` |
+| MTProxy Updating… / нет связи с DC | ≥1.6.12 `--nat-info` auto; или `MTPROXY_NAT_INFO=local:public` |
 | Не x86_64 | нужен amd64 VPS |
 
 Подробнее: [Troubleshooting](https://github.com/RasmusVraa/TgWebProxyR/wiki/Troubleshooting).

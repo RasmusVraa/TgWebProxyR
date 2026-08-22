@@ -7,6 +7,7 @@ on:
     tags: ["v*"]
     paths:
       - "docker/**"
+      - "scripts/**"
       - ".github/workflows/docker.yml"
       - "version"
   workflow_dispatch:
@@ -52,9 +53,13 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 --branch master https://github.com/telegramdesktop/tproxy-server.git /tmp/tps
+          python3 "$GITHUB_WORKSPACE/scripts/patch-tproxy-per-profile-metrics.py" /tmp/tps
           (cd /tmp/tps && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
             -o "$GITHUB_WORKSPACE/tproxy-server-linux-amd64" ./cmd/tproxy-server)
           chmod +x tproxy-server-linux-amd64
+          # sanity: per-profile metrics symbols present
+          strings tproxy-server-linux-amd64 | grep -q 'tproxy_bytes_up_total{profile=' \
+            || (echo "per-profile metrics missing from binary"; exit 1)
 
       - name: Build mtproto-proxy (debian bookworm = runtime glibc)
         run: |

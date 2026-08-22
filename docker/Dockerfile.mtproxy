@@ -2,7 +2,7 @@
 FROM debian:bookworm-slim
 ARG TWPR_VERSION=1.5.0
 ARG USE_LOCAL_BIN=0
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl jq \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl jq iproute2 \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --home /nonexistent --shell /usr/sbin/nologin mtproxy \
   && mkdir -p /etc/mtproxy /opt/MTProxy/objs/bin /usr/share/mtproxy-defaults /tmp/bin /run/twpr

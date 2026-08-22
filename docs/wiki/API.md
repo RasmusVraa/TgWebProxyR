@@ -39,7 +39,7 @@ Authorization: Bearer <TWPR_API_TOKEN>
 | GET | `/v1/users/{name}/link` | tg / https |
 | PATCH | `/v1/users/{name}` | `{"name":"bob"}` rename |
 | DELETE | `/v1/users/{name}` | удалить (не `default`) |
-| GET | `/v1/traffic` | метрики relay |
+| GET | `/v1/traffic` | всего + `users[]` (сессии / ↑ / ↓ по профилю) |
 
 ## Примеры
 

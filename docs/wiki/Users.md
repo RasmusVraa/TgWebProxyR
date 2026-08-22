@@ -28,6 +28,7 @@ sudo tgwebproxyr secret rotate bob
 sudo tgwebproxyr secret remove bob
 sudo tgwebproxyr secret apply
 sudo tgwebproxyr metrics
+# всего + по каждому пользователю (нужен relay ≥1.6.12)
 ```
 
 Имя: латиница, цифры, `._-` (без пробелов).

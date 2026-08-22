@@ -23,6 +23,10 @@ services:
       MTPROXY_SECRET: ${TWPR_SECRET}
       MTPROXY_WORKERS: ${MTPROXY_WORKERS:-1}
       MTPROXY_MAX_CONNECTIONS: ${MTPROXY_MAX_CONNECTIONS:-4096}
+      # --nat-info: auto в entrypoint; override LOCAL:PUBLIC или off
+      MTPROXY_NAT_INFO: ${MTPROXY_NAT_INFO:-}
+      MTPROXY_EXTERNAL_IP: ${MTPROXY_EXTERNAL_IP:-}
+      MTPROXY_INTERNAL_IP: ${MTPROXY_INTERNAL_IP:-}
       TWPR_HOST_PROFILES: /run/twpr/profiles.json
     volumes:
       - mtproxy_data:/etc/mtproxy
