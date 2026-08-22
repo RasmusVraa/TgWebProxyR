@@ -2,7 +2,7 @@
 
 ## Сертификат / HTTPS не поднимается
 
-- A-запись домена указывает на **этот** VPS  
+- A-запись указывает на **этот** VPS  
 - Нет Cloudflare/CDN на первом деплое  
 - Открыты TCP **80** и **443**  
 - Лишний/битый AAAA лучше убрать  
@@ -12,50 +12,59 @@ sudo tgwebproxyr status
 curl -fsSk https://ВАШ_ДОМЕН/ -o /dev/null && echo OK
 ```
 
-## health / readyz down
+## health / readyz / metrics down
 
 ```bash
+sudo tgwebproxyr health
 sudo tgwebproxyr status
 sudo tgwebproxyr logs
 sudo tgwebproxyr doctor
 curl -fsS http://127.0.0.1:8081/healthz
 curl -fsS http://127.0.0.1:8081/readyz
-```
-
-Docker: admin проброшен на `127.0.0.1:8081`.
-
-## Клиент «Connecting…»
-
-- Desktop ≥ 7.1.1  
-- Hostname и secret **точно** как в `tgwebproxyr link`  
-- Сайт с хоста открывается по HTTPS  
-
-## Новый пользователь не коннектится (Docker)
-
-Нужны **и** profiles в relay, **и** все секреты в MTProxy (`-S` на каждый).
-
-```bash
-sudo tgwebproxyr update
-sudo tgwebproxyr secret apply
-# смотрите в логах mtproxy строку: mtproxy -S count: N  (N = число пользователей)
-sudo tgwebproxyr docker logs mtproxy 80
 curl -fsS http://127.0.0.1:8081/metrics | head
 ```
 
-Если `/etc/tgwebproxyr/profiles.json` оказался **каталогом** (баг bind-mount без файла) — удалите каталог, затем `secret apply`.
+Docker: admin проброшен на `127.0.0.1:8081`.  
+В боте «Метрики недоступны» = тот же `:8081` не отвечает.
 
-Ошибка Desktop *«built-in web transport couldn't connect»* обычно значит: secret не принят relay/mtproxy или HTTPS/домен.
+## Клиент «Connecting…» / web transport
+
+- Desktop ≥ 7.1.1  
+- Hostname и secret **точно** как в `link`  
+- Сайт открывается по HTTPS  
+- Для **нового** пользователя — см. ниже  
+
+## Новый пользователь не коннектится
+
+Нужны профили в **relay** и все secrets в **MTProxy** (`-S` на каждый). С **v1.6.7** это делает `secret apply`.
+
+```bash
+sudo tgwebproxyr update          # ≥ 1.6.7
+sudo tgwebproxyr secret apply
+sudo tgwebproxyr docker logs mtproxy 40
+# ожидайте: mtproxy -S count: N
+curl -fsS http://127.0.0.1:8081/healthz
+```
+
+Если `/etc/tgwebproxyr/profiles.json` — **каталог** (баг bind-mount):
+
+```bash
+sudo rm -rf /etc/tgwebproxyr/profiles.json
+sudo tgwebproxyr secret apply
+```
+
+Подробнее: [[Users]].
 
 ## Pull образов «завис»
 
-С v1.5.1 есть живой прогресс. Смотрите также:
+С v1.5.1 есть живой прогресс:
 
 ```bash
 tail -f /tmp/tgwebproxyr-bootstrap.log
 sudo tgwebproxyr docker pull
 ```
 
-Если GHCR недоступен — compose соберёт из release-бинарников (дольше).
+Если GHCR недоступен — сборка из release-бинарников (дольше).
 
 ## Не x86_64
 

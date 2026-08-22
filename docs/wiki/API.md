@@ -1,15 +1,19 @@
 # Shop API
 
-REST API для внешних магазинов и скриптов: создание пользователей, ссылки, трафик.
+REST для внешних магазинов и скриптов: пользователи, ссылки, трафик.
+
+Актуально с **v1.6.6+**. После create/delete вызывается `secret apply` (relay + все `-S` у MTProxy).
 
 ## Установка
 
 ```bash
 sudo tgwebproxyr api setup
-sudo tgwebproxyr api token    # показать Bearer-токен
+sudo tgwebproxyr api token     # Bearer
+sudo tgwebproxyr api status
+sudo tgwebproxyr api rotate    # новый token
 ```
 
-Слушает только **127.0.0.1:8787** (не торчит наружу). Для доступа с другого хоста — свой reverse proxy + TLS + firewall.
+Слушает только **127.0.0.1:8787**. Наружу — свой reverse proxy + TLS + firewall.
 
 Файлы: `/etc/tgwebproxyr/api.env`, unit `tgwebproxyr-api.service`.
 
@@ -19,20 +23,22 @@ sudo tgwebproxyr api token    # показать Bearer-токен
 Authorization: Bearer <TWPR_API_TOKEN>
 ```
 
-или заголовок `X-Api-Token: <token>`.
+или `X-Api-Token: <token>`.
+
+`GET /v1/health` — без auth.
 
 ## Endpoints
 
 | Method | Path | Описание |
 | --- | --- | --- |
-| GET | `/v1/health` | без auth |
-| GET | `/v1/status` | hostname, число users |
+| GET | `/v1/health` | liveness |
+| GET | `/v1/status` | hostname, число users, mode |
 | GET | `/v1/users` | список + ссылки |
-| POST | `/v1/users` | `{"name":"alice"}` → создать |
+| POST | `/v1/users` | `{"name":"alice"}` |
 | GET | `/v1/users/{name}` | профиль |
-| GET | `/v1/users/{name}/link` | tg / https ссылки |
-| PATCH | `/v1/users/{name}` | `{"name":"bob"}` → rename |
-| DELETE | `/v1/users/{name}` | удалить (не default) |
+| GET | `/v1/users/{name}/link` | tg / https |
+| PATCH | `/v1/users/{name}` | `{"name":"bob"}` rename |
+| DELETE | `/v1/users/{name}` | удалить (не `default`) |
 | GET | `/v1/traffic` | метрики relay |
 
 ## Примеры
@@ -49,7 +55,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8787/v1/users
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8787/v1/users/shop_user1/link
+  -X PATCH -H "Content-Type: application/json" \
+  -d '{"name":"shop_user2"}' \
+  http://127.0.0.1:8787/v1/users/shop_user1
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -X DELETE \
+  http://127.0.0.1:8787/v1/users/shop_user2
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8787/v1/traffic
 ```
 
-После create/delete профили сразу применяются к Docker/Native движку (`secret apply`).
+См. также: [[Users]], [[CLI]].

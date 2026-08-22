@@ -2,16 +2,22 @@
 
 Установщик и CLI для Telegram **WEB**-прокси на базе [`tproxy-server`](https://github.com/telegramdesktop/tproxy-server).
 
-> Скрипт навайбкоден — используйте с осторожностью.
+> Скрипт навайбкоден — используйте с осторожностью.  
+> Актуальная версия: **[v1.6.7](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.7)** · [README](https://github.com/RasmusVraa/TgWebProxyR#readme)
 
 ## Страницы
 
-- [[Installation]] — установка, флаги, non-interactive
-- [[Docker-vs-Native]] — выбор носителя
-- [[CLI]] — меню и команды
-- [[Bot]] — Telegram-бот
-- [[Client]] — подключение в Telegram Desktop
-- [[Troubleshooting]] — типичные проблемы
+| | |
+| --- | --- |
+| [[Installation]] | one-liner, флаги, требования |
+| [[Docker-vs-Native]] | Compose или systemd |
+| [[Users]] | несколько secret / профили |
+| [[CLI]] | меню и команды |
+| [[Bot]] | Telegram-бот |
+| [[API]] | Shop REST API |
+| [[Backups]] | архивы и автобэкап |
+| [[Client]] | подключение Desktop |
+| [[Troubleshooting]] | типовые поломки |
 
 ## Быстрый старт
 
@@ -19,9 +25,19 @@
 wget -qO /tmp/twpr.sh \
   https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh \
   && sudo bash /tmp/twpr.sh
+
+sudo tgwebproxyr link
 ```
 
-После установки: `sudo tgwebproxyr` → меню.
+В Desktop ≥ 7.1.1: **Settings → Advanced → Connection type → Add proxy → WEB**.
+
+## Что умеет
+
+- Docker или Native установка  
+- Несколько пользователей на одном домене (`secret add` / бот / API)  
+- Telegram-бот (статус, пользователи, логи, трафик, бэкапы)  
+- Shop API на `127.0.0.1:8787` для магазинов  
+- Автобэкап + отправка архива админу  
 
 Репозиторий: https://github.com/RasmusVraa/TgWebProxyR  
 Релизы: https://github.com/RasmusVraa/TgWebProxyR/releases

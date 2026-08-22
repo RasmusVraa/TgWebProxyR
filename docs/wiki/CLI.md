@@ -10,30 +10,20 @@ tgwebproxyr
 tgwebproxyr menu
 ```
 
-Пункты:
-
-1. Ссылки  
-2. Статус  
-3. Управление (start / stop / restart / doctor)  
-4. Логи  
-5. Пользователи / secrets  
-6. Настройки  
-7. Telegram-бот  
-8. Обновление и бэкапы  
-9. Установка / переустановка  
-u. Удалить  
+Типичные пункты: ссылки, статус, управление, логи, пользователи, настройки, бот, бэкапы, установка, удаление.
 
 ## Прокси
 
 ```bash
-tgwebproxyr start
-tgwebproxyr stop
-tgwebproxyr restart
+tgwebproxyr start|stop|restart
 tgwebproxyr status
+tgwebproxyr health            # healthz / readyz / HTTPS (отдельно от меню)
 tgwebproxyr link
 tgwebproxyr logs              # compose или journalctl
-tgwebproxyr logs relay 200    # Docker: сервис + хвост
+tgwebproxyr logs relay 200
 tgwebproxyr doctor
+tgwebproxyr metrics
+tgwebproxyr metrics --raw
 ```
 
 ## Установка
@@ -46,29 +36,29 @@ tgwebproxyr install …         # синоним setup
 tgwebproxyr reinstall
 ```
 
-## Secrets
+## Secrets / пользователи
 
 ```bash
 tgwebproxyr secret list
 tgwebproxyr secret show
 tgwebproxyr secret link [name]
 tgwebproxyr secret rotate [name]
-tgwebproxyr secret add [name]       # Docker и Native
+tgwebproxyr secret add [name]
 tgwebproxyr secret rename <old> <new>
 tgwebproxyr secret remove <name>
-tgwebproxyr secret apply            # перечитать реестр в движок
-tgwebproxyr metrics                 # трафик / сессии
-tgwebproxyr metrics --raw
+tgwebproxyr secret apply      # relay + все -S у mtproxy
 ```
 
-Реестр: `/etc/tgwebproxyr/profiles.json` (профиль `default` всегда первый). В Docker файл монтируется в relay.
+Подробнее: [[Users]].
 
 ## Бот / API / бэкапы / Docker
 
 ```bash
 tgwebproxyr bot setup|update|status|start|stop|restart|logs|menu
-tgwebproxyr api setup|token|status|start|stop|restart|logs
-tgwebproxyr backup create|list|restore <name>|auto …
+tgwebproxyr api setup|token|status|start|stop|restart|logs|rotate
+tgwebproxyr backup create|list|restore <name>
+tgwebproxyr backup auto hourly|daily|monthly|off
+tgwebproxyr backup auto send on|off
 tgwebproxyr docker setup|up|down|restart|status|logs|pull|build
 tgwebproxyr update
 tgwebproxyr uninstall
@@ -81,10 +71,11 @@ tgwebproxyr help
 | Путь | Назначение |
 | --- | --- |
 | `/opt/tgwebproxyr` | код менеджера |
-| `/etc/tgwebproxyr/settings.env` | состояние |
-| `/etc/tgwebproxyr/bot.env` | токен бота |
-| `/etc/tgwebproxyr/api.env` | Bearer token Shop API |
+| `/etc/tgwebproxyr/settings.env` | hostname, режим, порты |
 | `/etc/tgwebproxyr/profiles.json` | пользователи / secrets |
+| `/etc/tgwebproxyr/bot.env` | бот |
+| `/etc/tgwebproxyr/api.env` | Shop API token |
+| `/etc/tgwebproxyr/autobackup.env` | расписание автобэкапа |
 | `/srv/tproxy-site` | публичный сайт |
 | `/opt/tgwebproxyr/docker/.env` | Compose env |
-| `/opt/tgwebproxyr/backups/` | бэкапы |
+| `/opt/tgwebproxyr/backups/` | архивы |
