@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 — 2026-08-22
+
+- Обход падения upstream `go test` (flake `TestLoadAcceptsSystemdCredentialReadPermissions` на части VPS)
+- Установка продолжает `go build` и деплой
+
 ## 1.2.0 — 2026-08-22
 
 - Выбор рабочих портов в мастере (HTTP/HTTPS/relay/admin/mtproxy)
