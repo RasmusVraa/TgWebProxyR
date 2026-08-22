@@ -50,21 +50,46 @@ if ! command -v curl >/dev/null 2>&1; then
   apt-get install -y -qq curl ca-certificates >>"$INSTALL_LOG" 2>&1 || true
 fi
 
-# Docker сразу + параллельный pull, пока качаем архив
+# Docker сразу в фоне (прогресс — при ожидании в setup)
+echo "  >> Docker + образы в фоне…"
 (
   if ! command -v docker >/dev/null 2>&1; then
+    echo "[bootstrap] installing docker…" >>"$INSTALL_LOG"
     curl -fsSL https://get.docker.com | sh >>"$INSTALL_LOG" 2>&1 || true
     systemctl enable --now docker >>"$INSTALL_LOG" 2>&1 || true
   fi
   if command -v docker >/dev/null 2>&1; then
     export DOCKER_CLI_HINTS=false
-    docker pull caddy:2.8-alpine >>"$INSTALL_LOG" 2>&1 &
-    docker pull ghcr.io/rasmusvraa/tgwebproxyr-relay:latest >>"$INSTALL_LOG" 2>&1 &
-    docker pull ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:latest >>"$INSTALL_LOG" 2>&1 &
+    for img in caddy:2.8-alpine \
+      ghcr.io/rasmusvraa/tgwebproxyr-relay:latest \
+      ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:latest; do
+      name="$(echo "$img" | tr '/:' '__')"
+      log="/tmp/twpr-boot-pull-${name}.log"
+      ( stdbuf -oL docker pull "$img" >"$log" 2>&1 || docker pull "$img" >"$log" 2>&1
+        echo "EXIT:$?" >>"$log" ) &
+      echo $! >"/tmp/twpr-boot-pull-${name}.pid"
+    done
+    # heartbeat
+    while true; do
+      any=0
+      for pidf in /tmp/twpr-boot-pull-*.pid; do
+        [[ -f "$pidf" ]] || continue
+        pid="$(cat "$pidf" 2>/dev/null || true)"
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+          any=1
+          log="${pidf%.pid}.log"
+          line="$(tail -1 "$log" 2>/dev/null | tr -d '\r' | cut -c1-80)"
+          echo "[$(date +%H:%M:%S)] ${line}" >>"$INSTALL_LOG"
+        fi
+      done
+      [[ "$any" -eq 0 ]] && break
+      sleep 3
+    done
     wait || true
   fi
 ) &
 EARLY_PID=$!
+echo "  >> (прогресс образов: tail -f ${INSTALL_LOG})"
 
 tmpdir="$(mktemp -d /tmp/tgwebproxyr-boot.XXXXXX)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -102,6 +127,18 @@ chmod 0755 /usr/local/bin/tgwebproxyr
 VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
 echo "  OK  v${VERSION} → ${INSTALL_DIR}"
 
+# дождаться фона с коротким прогрессом
+if kill -0 "$EARLY_PID" 2>/dev/null; then
+  echo "  >> жду Docker/образы…"
+  spin='|/-\' si=0
+  while kill -0 "$EARLY_PID" 2>/dev/null; do
+    line="$(tail -1 "$INSTALL_LOG" 2>/dev/null | tr -d '\r' | cut -c1-70)"
+    printf '\r\033[2K  %s  %s' "${spin:$((si % 4)):1}" "${line:-качаю…}"
+    si=$((si + 1))
+    sleep 1
+  done
+  echo ""
+fi
 wait "$EARLY_PID" 2>/dev/null || true
 
 if [[ ! -r /dev/tty ]] && [[ ! -t 0 ]]; then

@@ -60,43 +60,206 @@ EOF
   chmod 600 "$envf"
 }
 
-# Параллельный pull — стартует сразу, не ждёт ответов пользователя
+TWPR_docker_pull_one() {
+  # TWPR_docker_pull_one NAME IMAGE → пишет лог /tmp/twpr-pull-NAME.log, pid в .pid
+  local name="$1" image="$2"
+  local log="/tmp/twpr-pull-${name}.log"
+  local pidf="/tmp/twpr-pull-${name}.pid"
+  : >"$log"
+  (
+    export DOCKER_CLI_HINTS=false
+    # line-buffered, чтобы прогресс сразу в лог
+    if command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -oL -eL docker pull "$image" >>"$log" 2>&1
+    else
+      docker pull "$image" >>"$log" 2>&1
+    fi
+    echo "EXIT:$?" >>"$log"
+  ) &
+  echo $! >"$pidf"
+}
+
+TWPR_docker_pull_tail() {
+  # последняя осмысленная строка прогресса
+  local log="$1" line
+  line="$(grep -E 'Downloading|Extracting|Pull complete|Already exists|Download complete|Pulling from|EXIT:|denied|Error|not found' "$log" 2>/dev/null | tail -1 || true)"
+  [[ -z "$line" ]] && line="$(tail -1 "$log" 2>/dev/null || true)"
+  # укоротить
+  line="${line#"${line%%[![:space:]]*}"}"
+  if [[ ${#line} -gt 64 ]]; then
+    line="${line:0:61}…"
+  fi
+  printf '%s' "${line:-…}"
+}
+
+TWPR_docker_pull_bar() {
+  local done="$1" total="$2" i bar="" filled=0
+  [[ "$total" -lt 1 ]] && total=1
+  filled=$(( done * 20 / total ))
+  for ((i = 0; i < 20; i++)); do
+    if (( i < filled )); then bar+="#"; else bar+="-"; fi
+  done
+  printf '[%s] %s/%s' "$bar" "$done" "$total"
+}
+
+# Параллельный pull с живым прогрессом на экране
+TWPR_docker_pull_images() {
+  command -v docker >/dev/null 2>&1 || return 1
+  local tag="${TWPR_IMAGE_TAG:-latest}"
+  local ver
+  ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo "$tag")"
+
+  local -a names=() images=()
+  names+=(caddy); images+=("${TWPR_CADDY_IMAGE}")
+  names+=(relay); images+=("${TWPR_RELAY_IMAGE}:${tag}")
+  names+=(mtproxy); images+=("${TWPR_MTPROXY_IMAGE}:${tag}")
+  if [[ "$tag" == "latest" && -n "$ver" && "$ver" != "latest" ]]; then
+    names+=(relay-ver); images+=("${TWPR_RELAY_IMAGE}:${ver}")
+    names+=(mtproxy-ver); images+=("${TWPR_MTPROXY_IMAGE}:${ver}")
+  fi
+
+  local n=${#names[@]} i
+  echo ""
+  TWPR_info "Скачиваю Docker-образы (${n} шт., параллельно)…"
+  echo -e "  ${C_DIM}обычно 1–3 минуты на чистом VPS — сейчас будет прогресс${C_RESET}"
+  echo ""
+
+  for ((i = 0; i < n; i++)); do
+    TWPR_docker_pull_one "${names[$i]}" "${images[$i]}"
+  done
+
+  local show_n=3
+  (( n < 3 )) && show_n=$n
+
+  # резерв строк под UI
+  echo "  [--------------------] 0/${n}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  local _r
+  for ((_r = 0; _r < show_n; _r++)); do echo "  …"; done
+
+  local finished=0 spin='|/-\' si=0 started
+  started=$(date +%s)
+
+  while (( finished < n )); do
+    finished=0
+    local -a lines=()
+    for ((i = 0; i < n; i++)); do
+      local name="${names[$i]}"
+      local pidf="/tmp/twpr-pull-${name}.pid"
+      local log="/tmp/twpr-pull-${name}.log"
+      local pid="" st="…"
+      [[ -f "$pidf" ]] && pid="$(cat "$pidf" 2>/dev/null || true)"
+      if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        st="$(TWPR_docker_pull_tail "$log")"
+      else
+        finished=$((finished + 1))
+        if grep -q 'EXIT:0' "$log" 2>/dev/null || docker image inspect "${images[$i]}" >/dev/null 2>&1; then
+          st="OK готово"
+        else
+          st="!! пропуск"
+        fi
+      fi
+      if (( i < show_n )); then
+        local label="${names[$i]}"
+        printf -v label '%-8s' "$label"
+        lines+=("  ${label} ${st}")
+      fi
+    done
+
+    local elapsed=$(( $(date +%s) - started ))
+    local spin_c="${spin:$((si % 4)):1}"
+    si=$((si + 1))
+
+    printf '\033[%dA' "$((show_n + 2))"
+    printf '\033[2K\r  %s  %s  %ss\n' "$(TWPR_docker_pull_bar "$finished" "$n")" "$spin_c" "$elapsed"
+    printf '\033[2K\r  %s\n' "${C_GRAY}────────────────────────────────────────${C_RESET}"
+    local L
+    for L in "${lines[@]}"; do
+      printf '\033[2K\r%s\n' "$L"
+    done
+
+    (( finished >= n )) && break
+    sleep 1
+  done
+
+  echo ""
+  local okc=0
+  for ((i = 0; i < show_n; i++)); do
+    local name="${names[$i]}" log="/tmp/twpr-pull-${name}.log"
+    if grep -q 'EXIT:0' "$log" 2>/dev/null || docker image inspect "${images[$i]}" >/dev/null 2>&1; then
+      TWPR_ok "${names[$i]}  ${images[$i]}"
+      okc=$((okc + 1))
+    else
+      TWPR_warn "${names[$i]}  не скачался (будет сборка из Releases)"
+    fi
+  done
+  echo ""
+  [[ "$okc" -ge 1 ]]
+}
+
+# Параллельный pull — в фоне на этапе вопросов (с тихим логом + heartbeat)
 TWPR_docker_prefetch() {
   command -v docker >/dev/null 2>&1 || return 0
   local tag="${TWPR_IMAGE_TAG:-latest}"
-  local log="/tmp/tgwebproxyr-docker-pull.log"
-  : >"$log"
-  TWPR_info "Параллельно качаю образы (Caddy + relay + mtproxy)…"
+  local logdir="/tmp/twpr-prefetch"
+  mkdir -p "$logdir"
+  TWPR_info "В фоне уже качаю образы (пока отвечаете на вопросы)…"
   (
     export DOCKER_CLI_HINTS=false
-    pids=()
-    docker pull "${TWPR_CADDY_IMAGE}" >>"$log" 2>&1 & pids+=($!)
-    docker pull "${TWPR_RELAY_IMAGE}:${tag}" >>"$log" 2>&1 & pids+=($!)
-    docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >>"$log" 2>&1 & pids+=($!)
-    # если :latest ещё нет — пробуем версию из version
-    if [[ "$tag" == "latest" ]]; then
-      ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || true)"
-      if [[ -n "$ver" ]]; then
-        docker pull "${TWPR_RELAY_IMAGE}:${ver}" >>"$log" 2>&1 & pids+=($!)
-        docker pull "${TWPR_MTPROXY_IMAGE}:${ver}" >>"$log" 2>&1 & pids+=($!)
-      fi
+    TWPR_docker_pull_one caddy "${TWPR_CADDY_IMAGE}"
+    TWPR_docker_pull_one relay "${TWPR_RELAY_IMAGE}:${tag}"
+    TWPR_docker_pull_one mtproxy "${TWPR_MTPROXY_IMAGE}:${tag}"
+    local ver
+    ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || true)"
+    if [[ "$tag" == "latest" && -n "$ver" ]]; then
+      TWPR_docker_pull_one relay-ver "${TWPR_RELAY_IMAGE}:${ver}"
+      TWPR_docker_pull_one mtproxy-ver "${TWPR_MTPROXY_IMAGE}:${ver}"
     fi
-    ec=0
-    for p in "${pids[@]}"; do
-      wait "$p" || ec=1
+    # heartbeat в общий лог
+    local hb="/tmp/tgwebproxyr-docker-pull.log"
+    : >"$hb"
+    while true; do
+      local any=0 name
+      for name in caddy relay mtproxy relay-ver mtproxy-ver; do
+        local pidf="/tmp/twpr-pull-${name}.pid"
+        local pid=""
+        [[ -f "$pidf" ]] && pid="$(cat "$pidf" 2>/dev/null || true)"
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+          any=1
+          echo "[$(date +%H:%M:%S)] $name: $(TWPR_docker_pull_tail /tmp/twpr-pull-${name}.log)" >>"$hb"
+        fi
+      done
+      (( any == 0 )) && break
+      sleep 2
     done
-    echo "$ec" >"${log}.ec"
+    wait || true
+    echo 0 >"${hb}.ec"
   ) &
   TWPR_DOCKER_PREFETCH_PID=$!
   export TWPR_DOCKER_PREFETCH_PID
 }
 
 TWPR_docker_wait_prefetch() {
-  if [[ -n "${TWPR_DOCKER_PREFETCH_PID:-}" ]]; then
-    TWPR_info "Дожидаюсь окончания скачивания образов…"
-    wait "${TWPR_DOCKER_PREFETCH_PID}" 2>/dev/null || true
-    unset TWPR_DOCKER_PREFETCH_PID
+  if [[ -z "${TWPR_DOCKER_PREFETCH_PID:-}" ]]; then
+    return 0
   fi
+  TWPR_info "Дожидаюсь фонового скачивания…"
+  # пока ждём — показываем прогресс из логов
+  local spin='|/-\' si=0
+  while kill -0 "${TWPR_DOCKER_PREFETCH_PID}" 2>/dev/null; do
+    local caddy_st relay_st mp_st
+    caddy_st="$(TWPR_docker_pull_tail /tmp/twpr-pull-caddy.log 2>/dev/null || echo …)"
+    relay_st="$(TWPR_docker_pull_tail /tmp/twpr-pull-relay.log 2>/dev/null || echo …)"
+    mp_st="$(TWPR_docker_pull_tail /tmp/twpr-pull-mtproxy.log 2>/dev/null || echo …)"
+    printf '\r\033[2K  %s  caddy: %-28s | relay: %-28s | mtproxy: %-28s' \
+      "${spin:$((si % 4)):1}" "${caddy_st:0:28}" "${relay_st:0:28}" "${mp_st:0:28}"
+    si=$((si + 1))
+    sleep 1
+  done
+  echo ""
+  wait "${TWPR_DOCKER_PREFETCH_PID}" 2>/dev/null || true
+  unset TWPR_DOCKER_PREFETCH_PID
+  TWPR_ok "Фоновое скачивание завершено"
 }
 
 TWPR_docker_images_ready() {
@@ -110,7 +273,7 @@ TWPR_docker_ensure_docker() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     return 0
   fi
-  TWPR_info "Ставлю Docker…"
+  TWPR_info "Ставлю Docker (лог: /tmp/tgwebproxyr-bootstrap.log)…"
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
@@ -134,23 +297,18 @@ TWPR_docker_up() {
   local ver
   ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo "$tag")"
 
-  TWPR_info "Тяну образы с GHCR (параллельно)…"
-  set +e
-  docker pull "${TWPR_CADDY_IMAGE}" >/dev/null 2>&1 &
-  docker pull "${TWPR_RELAY_IMAGE}:${tag}" >/dev/null 2>&1 &
-  docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >/dev/null 2>&1 &
-  if [[ "$tag" == "latest" && -n "$ver" ]]; then
-    docker pull "${TWPR_RELAY_IMAGE}:${ver}" >/dev/null 2>&1 &
-    docker pull "${TWPR_MTPROXY_IMAGE}:${ver}" >/dev/null 2>&1 &
+  # если образов ещё нет — тянем с прогрессом
+  if ! TWPR_docker_images_ready; then
+    TWPR_IMAGE_TAG="$tag"
+    TWPR_docker_pull_images || true
+  else
+    TWPR_ok "Образы уже на диске"
   fi
-  wait
-  set -e
 
   if TWPR_docker_images_ready && [[ "${TWPR_DOCKER_BUILD:-0}" != "1" ]]; then
-    TWPR_ok "Образы GHCR на месте — up без сборки"
+    TWPR_ok "Поднимаю контейнеры…"
     TWPR_docker_compose up -d --no-build --remove-orphans
   else
-    # Быстрый fallback: docker build только скачивает бинарники с Releases
     TWPR_warn "GHCR недоступен — быстрая сборка из release-бинарников v${ver}"
     export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
     TWPR_IMAGE_TAG="$ver"
@@ -159,7 +317,8 @@ TWPR_docker_up() {
         && sed -i "s/^TWPR_IMAGE_TAG=.*/TWPR_IMAGE_TAG=${ver}/" "${TWPR_DOCKER_DIR}/.env" \
         || echo "TWPR_IMAGE_TAG=${ver}" >>"${TWPR_DOCKER_DIR}/.env"
     fi
-    TWPR_docker_compose build --parallel --build-arg "TWPR_VERSION=${ver}"
+    TWPR_info "docker compose build (скачивание бинарников)…"
+    TWPR_docker_compose build --progress=plain --parallel --build-arg "TWPR_VERSION=${ver}"
     TWPR_docker_compose up -d --remove-orphans
   fi
 
@@ -168,8 +327,10 @@ TWPR_docker_up() {
   for i in $(seq 1 45); do
     sleep 2
     hz="$(TWPR_health_probe 2>/dev/null || echo down)"
+    printf '\r\033[2K  health… %ss  (%s)' "$((i * 2))" "$hz"
     [[ "$hz" == "ready" || "$hz" == "alive" ]] && break
   done
+  echo ""
   case "$hz" in
     ready) TWPR_ok "Стек ready" ;;
     alive) TWPR_warn "Стек alive, backend ещё прогревается" ;;
@@ -282,9 +443,7 @@ TWPR_cmd_docker() {
       TWPR_cmd_link
       ;;
     pull)
-      TWPR_docker_prefetch
-      TWPR_docker_wait_prefetch
-      TWPR_docker_compose pull "$@"
+      TWPR_docker_pull_images
       ;;
     build)
       export DOCKER_BUILDKIT=1 TWPR_DOCKER_BUILD=1
