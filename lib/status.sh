@@ -156,8 +156,9 @@ TWPR_cmd_link() {
     TWPR_err "Прокси ещё не настроен. Запустите: tgwebproxyr setup"
     return 1
   fi
+  TWPR_ensure_default_profile 2>/dev/null || true
   echo ""
-  echo -e "  ${C_BOLD}Ссылки для Telegram Desktop 7.1.1+${C_RESET}"
+  echo -e "  ${C_BOLD}Профиль  default${C_RESET}  ${C_DIM}(основной)${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
   echo "  Hostname  ${TWPR_HOSTNAME}"
   echo "  Secret    ${TWPR_SECRET}"

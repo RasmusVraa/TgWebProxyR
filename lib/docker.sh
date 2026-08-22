@@ -397,6 +397,7 @@ TWPR_docker_install_engine() {
   # закрепим DEPLOY_MODE=docker в settings (на случай старых установок)
   TWPR_DEPLOY_MODE="docker"
   TWPR_save_state
+  TWPR_ensure_default_profile 2>/dev/null || true
   TWPR_cmd_status
   echo ""
   TWPR_cmd_link

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""TgWebProxyR Telegram bot — ProxyL-style menu, fast long-poll."""
+"""TgWebProxyR Telegram bot — UX как у MTProxyL/ProxyL: быстрые экраны, страницы, логи."""
 from __future__ import annotations
 
+import html
 import json
 import os
 import secrets as pysecrets
@@ -18,16 +19,15 @@ from typing import Any
 STATE_DIR = Path(os.environ.get("TWPR_STATE_DIR", "/etc/tgwebproxyr"))
 BOT_ENV = STATE_DIR / "bot.env"
 SETTINGS = STATE_DIR / "settings.env"
-PROFILES = Path("/etc/tproxy-server/profiles.json")
-# docker volume path may differ — also check compose mount
-PROFILES_CANDIDATES = [
-    PROFILES,
-    Path("/opt/tgwebproxyr/docker/relay_cfg/profiles.json"),
-]
-CONFIG = Path("/etc/tproxy-server/config.json")
+REGISTRY = STATE_DIR / "profiles.json"  # единый реестр (default всегда первый)
 BACKUP_DIR = Path(os.environ.get("TWPR_BACKUP_DIR", "/opt/tgwebproxyr/backups"))
 DOCKER_DIR = Path("/opt/tgwebproxyr/docker")
 API = "https://api.telegram.org/bot{token}/{method}"
+PER_PAGE = 8
+
+
+def esc(v: Any) -> str:
+    return html.escape(str(v), quote=False)
 
 
 def load_dotenv(path: Path) -> dict[str, str]:
@@ -43,19 +43,12 @@ def load_dotenv(path: Path) -> dict[str, str]:
     return out
 
 
-def save_bot_env(data: dict[str, str]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    BOT_ENV.write_text(
-        "# TgWebProxyR bot\n"
-        f"BOT_TOKEN={data.get('BOT_TOKEN', '')}\n"
-        f"ALLOWED_CHAT_IDS={data.get('ALLOWED_CHAT_IDS', '')}\n",
-        encoding="utf-8",
-    )
-    os.chmod(BOT_ENV, 0o600)
-
-
 def reload_cfg() -> tuple[dict[str, str], str, set[str]]:
     cfg = {**load_dotenv(SETTINGS), **load_dotenv(BOT_ENV)}
+    if (DOCKER_DIR / ".env").is_file():
+        denv = load_dotenv(DOCKER_DIR / ".env")
+        for k in ("TWPR_HOSTNAME", "TWPR_SECRET", "TWPR_EMAIL"):
+            cfg.setdefault(k, denv.get(k, ""))
     token = cfg.get("BOT_TOKEN", "")
     allowed = {x.strip() for x in cfg.get("ALLOWED_CHAT_IDS", "").split(",") if x.strip()}
     return cfg, token, allowed
@@ -69,23 +62,14 @@ def is_docker() -> bool:
 
 
 def hostname() -> str:
-    h = CFG.get("TWPR_HOSTNAME", "")
-    if h:
-        return h
-    if (DOCKER_DIR / ".env").is_file():
-        return load_dotenv(DOCKER_DIR / ".env").get("TWPR_HOSTNAME", "—")
-    return "—"
+    return CFG.get("TWPR_HOSTNAME") or "—"
 
 
 def secret_default() -> str:
-    return CFG.get("TWPR_SECRET", "") or load_dotenv(DOCKER_DIR / ".env").get("TWPR_SECRET", "")
+    return CFG.get("TWPR_SECRET", "")
 
 
-def admin_port() -> str:
-    return CFG.get("TWPR_PORT_ADMIN", "8081")
-
-
-def api(method: str, payload: dict[str, Any] | None = None, timeout: float = 12) -> dict[str, Any]:
+def api(method: str, payload: dict[str, Any] | None = None, timeout: float = 8) -> dict[str, Any]:
     url = API.format(token=TOKEN, method=method)
     data = None
     headers: dict[str, str] = {}
@@ -98,9 +82,7 @@ def api(method: str, payload: dict[str, Any] | None = None, timeout: float = 12)
 
 
 def allowed(chat_id: int | str) -> bool:
-    if not ALLOWED:
-        return False
-    return str(chat_id) in ALLOWED
+    return bool(ALLOWED) and str(chat_id) in ALLOWED
 
 
 def kb(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
@@ -108,23 +90,21 @@ def kb(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
 
 
 def main_menu_kb() -> dict[str, Any]:
-    # как ProxyL / MTProxyL
     return kb(
         [
-            [("ℹ️ Статус", "status"), ("🚦 Прокси", "proxy")],
-            [("👥 Пользователи", "users"), ("🔗 Ссылки", "links")],
-            [("📊 Трафик", "traffic"), ("📡 Доступность", "avail")],
-            [("💾 Бэкапы", "backups"), ("⚙️ Настройки", "settings")],
-            [("🔄 Doctor", "doctor")],
+            [("ℹ️ Статус", "m:status"), ("🚦 Прокси", "m:proxy")],
+            [("👥 Пользователи", "u:list:0"), ("🔗 Ссылки", "l:list:0")],
+            [("📜 Логи", "m:logs"), ("📊 Трафик", "m:traffic")],
+            [("💾 Бэкапы", "m:backups"), ("⚙️ Настройки", "m:settings")],
         ]
     )
 
 
-def back_kb() -> dict[str, Any]:
-    return kb([[("⬅️ Меню", "menu")]])
+def back_kb(target: str = "m:root") -> dict[str, Any]:
+    return kb([[("⬅️ Меню", target)]])
 
 
-def sh(cmd: list[str], timeout: float = 8) -> str:
+def sh(cmd: list[str], timeout: float = 4) -> str:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return ((r.stdout or "") + (r.stderr or "")).strip()
@@ -132,77 +112,55 @@ def sh(cmd: list[str], timeout: float = 8) -> str:
         return str(e)
 
 
-def docker_ps_line(svc: str) -> str:
-    out = sh(
-        [
-            "docker",
-            "compose",
-            "-f",
-            str(DOCKER_DIR / "docker-compose.yml"),
-            "--env-file",
-            str(DOCKER_DIR / ".env"),
-            "ps",
-            "-a",
-            "--format",
-            "{{.Status}}",
-            svc,
-        ],
-        timeout=6,
-    )
-    return out.splitlines()[0] if out else "missing"
+# ── профили (реестр на хосте, default всегда первый) ─────────────────────────
 
-
-def svc(name: str) -> str:
-    if is_docker():
-        mapping = {"tproxy-server": "relay", "mtproxy": "mtproxy", "caddy": "caddy"}
-        dname = mapping.get(name, name)
-        st = docker_ps_line(dname).lower()
-        if "up" in st or "running" in st:
-            return "running" if "unhealthy" not in st else "unhealthy"
-        if "exit" in st:
-            return "exited"
-        return st or "missing"
-    return sh(["systemctl", "is-active", name], timeout=3) or "unknown"
-
-
-def curl_ok(url: str, timeout: float = 2.5) -> bool:
-    try:
-        urllib.request.urlopen(url, timeout=timeout)
-        return True
-    except Exception:
-        return False
-
-
-def profiles_path() -> Path:
-    for p in PROFILES_CANDIDATES:
-        if p.is_file():
-            return p
-    return PROFILES
+def ensure_default(profiles: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    profiles = list(profiles or [])
+    sec = secret_default()
+    rest = [p for p in profiles if p.get("name") != "default"]
+    if sec:
+        profiles = [
+            {
+                "name": "default",
+                "secret": sec,
+                "backend": "127.0.0.1:2398",
+                "carrier_mode": "https",
+            }
+        ] + rest
+    elif rest:
+        profiles = rest
+    else:
+        profiles = []
+    return profiles
 
 
 def load_profiles() -> list[dict[str, Any]]:
-    path = profiles_path()
-    if not path.is_file():
-        return []
+    profiles: list[dict[str, Any]] = []
+    if REGISTRY.is_file():
+        try:
+            data = json.loads(REGISTRY.read_text(encoding="utf-8"))
+            profiles = list(data.get("profiles") or [])
+        except Exception:
+            profiles = []
+    profiles = ensure_default(profiles)
+    # синхронизируем файл, если default появился/обновился
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return list(data.get("profiles") or [])
+        save_registry(profiles)
     except Exception:
-        return []
+        pass
+    return profiles
 
 
-def save_profiles(profiles: list[dict[str, Any]]) -> None:
-    path = profiles_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"profiles": profiles}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+def save_registry(profiles: list[dict[str, Any]]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    profiles = ensure_default(profiles)
+    tmp = REGISTRY.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps({"profiles": profiles}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     os.chmod(tmp, 0o600)
-    tmp.replace(path)
-    if is_docker():
-        sh(["docker", "compose", "-f", str(DOCKER_DIR / "docker-compose.yml"),
-            "--env-file", str(DOCKER_DIR / ".env"), "restart", "relay"], timeout=60)
-    else:
-        sh(["systemctl", "restart", "tproxy-server"], timeout=30)
+    tmp.replace(REGISTRY)
 
 
 def web_link(host: str, secret: str) -> str:
@@ -213,116 +171,218 @@ def tg_link(host: str, secret: str) -> str:
     return "tg://webproxy?" + urllib.parse.urlencode({"server": host, "secret": secret})
 
 
+# ── быстрый статус контейнеров (без health-probe) ────────────────────────────
+
+def _compose(*args: str, timeout: float = 5) -> str:
+    if not (DOCKER_DIR / ".env").is_file():
+        return ""
+    return sh(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(DOCKER_DIR / "docker-compose.yml"),
+            "--env-file",
+            str(DOCKER_DIR / ".env"),
+            *args,
+        ],
+        timeout=timeout,
+    )
+
+
+def svc_line(name: str) -> str:
+    if is_docker():
+        mapping = {"relay": "relay", "mtproxy": "mtproxy", "caddy": "caddy", "tproxy-server": "relay"}
+        dname = mapping.get(name, name)
+        out = _compose("ps", "--format", "{{.Name}} {{.Status}}", dname, timeout=4)
+        line = out.splitlines()[0] if out else ""
+        low = line.lower()
+        if "up" in low or "running" in low:
+            return "🟢 running" if "unhealthy" not in low else "🟡 unhealthy"
+        if "exit" in low:
+            return "🔴 exited"
+        return f"⚪ {line or 'missing'}"
+    st = sh(["systemctl", "is-active", name], timeout=2) or "missing"
+    if st == "active":
+        return "🟢 active"
+    if st == "inactive":
+        return "🟡 inactive"
+    return f"🔴 {st}"
+
+
+def proxy_running() -> bool:
+    if is_docker():
+        out = _compose("ps", "--format", "{{.Status}}", "relay", timeout=4).lower()
+        return "up" in out or "running" in out
+    return sh(["systemctl", "is-active", "tproxy-server"], timeout=2) == "active"
+
+
+# ── экраны ───────────────────────────────────────────────────────────────────
+
 def text_status() -> str:
     host = hostname()
-    relay, mp, caddy = svc("tproxy-server"), svc("mtproxy"), svc("caddy")
-    hz = curl_ok(f"http://127.0.0.1:{admin_port()}/healthz")
-    rz = curl_ok(f"http://127.0.0.1:{admin_port()}/readyz")
-    mark = "🟢" if rz else ("🟡" if hz else "🔴")
     mode = "docker" if is_docker() else "native"
     return (
-        f"<b>TgWebProxyR</b> · {mode}\n\n"
-        f"{mark} <code>{host}</code>\n"
-        f"relay <code>{relay}</code> · mtproxy <code>{mp}</code> · caddy <code>{caddy}</code>\n"
-        f"healthz {'ok' if hz else 'fail'} · readyz {'ok' if rz else 'fail'}"
+        f"<b>TgWebProxyR</b> · {esc(mode)}\n\n"
+        f"<code>{esc(host)}</code>\n"
+        f"relay {svc_line('relay')}\n"
+        f"mtproxy {svc_line('mtproxy')}\n"
+        f"caddy {svc_line('caddy')}\n\n"
+        f"<i>Без health-probe — быстро. Логи: кнопка ниже в меню.</i>"
     )
 
 
 def text_proxy() -> str:
+    run = proxy_running()
     return (
         f"<b>Прокси WEB</b>\n\n"
-        f"Hostname: <code>{hostname()}</code>\n"
-        f"HTTPS: <code>{CFG.get('TWPR_PORT_HTTPS', '443')}</code>\n"
-        f"Режим: <code>{'docker' if is_docker() else 'native'}</code>\n\n"
+        f"Состояние: <b>{'работает' if run else 'остановлен'}</b>\n"
+        f"Hostname: <code>{esc(hostname())}</code>\n"
+        f"Режим: <code>{'docker' if is_docker() else 'native'}</code>\n"
+        f"Профиль: <code>default</code>\n\n"
         f"Desktop ≥ 7.1.1 → Add proxy → WEB"
     )
 
 
-def text_users() -> str:
-    profiles = load_profiles()
-    if not profiles:
-        return "<b>Пользователи</b>\n\nПусто. Нажмите ➕"
-    lines = ["<b>Пользователи</b>\n"]
-    for p in profiles:
+def proxy_kb() -> dict[str, Any]:
+    run = proxy_running()
+    rows: list[list[tuple[str, str]]] = []
+    if run:
+        rows.append([("🔄 Рестарт", "px:restart"), ("⏹ Стоп", "px:stop")])
+    else:
+        rows.append([("▶️ Старт", "px:start")])
+    rows.append([("🔃 Обновить", "m:proxy"), ("⬅️ Меню", "m:root")])
+    return kb(rows)
+
+
+def text_users_page(page: int) -> tuple[str, dict[str, Any]]:
+    users = load_profiles()
+    total = len(users)
+    pages = max(1, (total + PER_PAGE - 1) // PER_PAGE) if total else 1
+    page = max(0, min(page, pages - 1))
+    if not total:
+        body = "<b>Пользователи</b>\n\nПока никого. ➕ добавит первого (кроме default)."
+        return body, kb([[("➕ Добавить", "u:add")], [("⬅️ Меню", "m:root")]])
+
+    chunk = users[page * PER_PAGE : (page + 1) * PER_PAGE]
+    lines = [f"<b>Пользователи</b> · {total}", ""]
+    for p in chunk:
+        name = str(p.get("name", "?"))
         sec = str(p.get("secret", ""))
-        short = sec[:8] + "…" if len(sec) > 8 else sec
-        lines.append(f"• <b>{p.get('name', '?')}</b> · <code>{short}</code>")
-    lines.append(f"\nВсего: <b>{len(profiles)}</b>")
-    return "\n".join(lines)
+        short = (sec[:8] + "…") if len(sec) > 8 else sec
+        mark = "★ " if name == "default" else "• "
+        lines.append(f"{mark}<b>{esc(name)}</b> · <code>{esc(short)}</code>")
+
+    rows: list[list[tuple[str, str]]] = []
+    # кнопки профилей по 2
+    pair: list[tuple[str, str]] = []
+    for p in chunk:
+        name = str(p.get("name", "?"))
+        pair.append((f"{'★ ' if name == 'default' else ''}{name}"[:28], f"u:show:{name}"))
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+
+    nav: list[tuple[str, str]] = []
+    if pages > 1:
+        nav.append(("◀️", f"u:list:{(page - 1) % pages}"))
+        nav.append((f"{page + 1}/{pages}", "noop"))
+        nav.append(("▶️", f"u:list:{(page + 1) % pages}"))
+        rows.append(nav)
+    rows.append([("➕ Добавить", "u:add"), ("⬅️ Меню", "m:root")])
+    return "\n".join(lines), kb(rows)
 
 
-def text_links() -> str:
+def text_user_card(name: str) -> tuple[str, dict[str, Any]]:
+    users = load_profiles()
+    p = next((x for x in users if x.get("name") == name), None)
+    if not p:
+        return f"Профиль <code>{esc(name)}</code> не найден.", back_kb("u:list:0")
+    sec = str(p.get("secret", ""))
     host = hostname()
-    profiles = load_profiles()
-    if not profiles and secret_default():
-        profiles = [{"name": "default", "secret": secret_default()}]
-    if not profiles:
-        return "<b>Ссылки</b>\n\nНет secret."
-    parts = ["<b>Ссылки</b>\n"]
-    for p in profiles:
-        sec = p.get("secret", "")
-        parts.append(f"<b>{p.get('name', 'user')}</b>")
-        parts.append(f"<code>{tg_link(host, sec)}</code>")
-        parts.append(f"<code>{web_link(host, sec)}</code>\n")
-    return "\n".join(parts)
+    body = (
+        f"<b>Профиль · {esc(name)}</b>\n\n"
+        f"Secret: <code>{esc(sec)}</code>\n\n"
+        f"<code>{esc(tg_link(host, sec))}</code>\n"
+        f"<code>{esc(web_link(host, sec))}</code>"
+    )
+    rows = [[("🔗 Ссылка", f"l:show:{name}")]]
+    if name != "default":
+        rows.append([("🗑 Удалить", f"u:del:{name}")])
+    rows.append([("⬅️ К списку", "u:list:0")])
+    return body, kb(rows)
+
+
+def text_links_page(page: int) -> tuple[str, dict[str, Any]]:
+    users = load_profiles()
+    total = len(users)
+    pages = max(1, (total + PER_PAGE - 1) // PER_PAGE) if total else 1
+    page = max(0, min(page, pages - 1))
+    if not total:
+        return "<b>Ссылки</b>\n\nНет профилей.", back_kb()
+
+    chunk = users[page * PER_PAGE : (page + 1) * PER_PAGE]
+    host = hostname()
+    parts = [f"<b>Ссылки</b> · стр. {page + 1}/{pages}", ""]
+    for p in chunk:
+        name = str(p.get("name", "?"))
+        sec = str(p.get("secret", ""))
+        star = "★ " if name == "default" else ""
+        parts.append(f"<b>{star}{esc(name)}</b>")
+        parts.append(f"<code>{esc(tg_link(host, sec))}</code>")
+        parts.append(f"<code>{esc(web_link(host, sec))}</code>\n")
+
+    rows: list[list[tuple[str, str]]] = []
+    if pages > 1:
+        rows.append(
+            [
+                ("◀️", f"l:list:{(page - 1) % pages}"),
+                (f"{page + 1}/{pages}", "noop"),
+                ("▶️", f"l:list:{(page + 1) % pages}"),
+            ]
+        )
+    rows.append([("⬅️ Меню", "m:root")])
+    return "\n".join(parts), kb(rows)
+
+
+def text_logs() -> str:
+    if is_docker():
+        out = _compose("logs", "--tail=40", "relay", "mtproxy", "caddy", timeout=8)
+    else:
+        out = sh(
+            ["journalctl", "-u", "tproxy-server", "-u", "mtproxy", "-u", "caddy", "-n", "40", "--no-pager"],
+            timeout=6,
+        )
+    if not out:
+        out = "(пусто)"
+    # Telegram HTML <pre> лимит
+    clip = out[-3500:]
+    return f"<b>Логи</b>\n\n<pre>{esc(clip)}</pre>"
+
+
+def logs_kb() -> dict[str, Any]:
+    return kb([[("🔃 Обновить", "m:logs"), ("⬅️ Меню", "m:root")]])
 
 
 def text_traffic() -> str:
-    profiles = load_profiles()
-    lines = ["<b>Трафик</b>\n", f"Профилей: <b>{len(profiles)}</b>"]
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{admin_port()}/metrics", timeout=2.5) as resp:
-            m = resp.read().decode("utf-8", errors="replace")
-        keep = [ln for ln in m.splitlines() if ln and not ln.startswith("#") and "session" in ln.lower()][:20]
-        if keep:
-            lines.append("\n<pre>" + "\n".join(keep)[:1800] + "</pre>")
-    except Exception:
-        lines.append("\nМетрики relay пока недоступны с хоста.")
+    users = load_profiles()
+    lines = [f"<b>Трафик</b>\n", f"Профилей: <b>{len(users)}</b>", f"default: <code>{'есть' if secret_default() else 'нет'}</code>"]
     return "\n".join(lines)
 
 
-def text_avail() -> str:
-    host = hostname()
-    checks = []
-    if host and host != "—":
-        url = f"https://{host}/"
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            checks.append(f"🟢 {url}")
-        except Exception as e:
-            checks.append(f"🔴 {url}\n<code>{e}</code>")
-    hz = curl_ok(f"http://127.0.0.1:{admin_port()}/healthz")
-    rz = curl_ok(f"http://127.0.0.1:{admin_port()}/readyz")
-    checks.append(("🟢" if hz else "🔴") + " healthz")
-    checks.append(("🟢" if rz else "🔴") + " readyz")
-    checks.append(("🟢" if "run" in svc("mtproxy") or svc("mtproxy") == "active" else "🔴") + " mtproxy")
-    checks.append(("🟢" if "run" in svc("caddy") or svc("caddy") == "active" else "🔴") + " caddy")
-    return "<b>Доступность</b>\n\n" + "\n".join(checks)
-
-
-def do_backup() -> str:
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    dest = BACKUP_DIR / f"twpr-{stamp}"
-    dest.mkdir(parents=True)
-    for src in (SETTINGS, BOT_ENV, profiles_path(), CONFIG, DOCKER_DIR / ".env", Path("/etc/caddy/Caddyfile")):
-        if src.is_file():
-            shutil.copy2(src, dest / src.name)
-    (dest / "meta.json").write_text(json.dumps({"created_at": stamp, "hostname": hostname()}, indent=2) + "\n", encoding="utf-8")
-    return str(dest)
-
-
-def list_backups() -> list[Path]:
-    if not BACKUP_DIR.is_dir():
-        return []
-    return sorted([p for p in BACKUP_DIR.iterdir() if p.is_dir()], reverse=True)
-
-
 def text_backups() -> str:
-    items = list_backups()[:12]
+    if not BACKUP_DIR.is_dir():
+        return "<b>Бэкапы</b>\n\nПусто."
+    items = sorted([p for p in BACKUP_DIR.iterdir() if p.is_dir()], reverse=True)[:12]
     if not items:
         return "<b>Бэкапы</b>\n\nПусто."
-    return "<b>Бэкапы</b>\n\n" + "\n".join(f"• <code>{p.name}</code>" for p in items)
+    return "<b>Бэкапы</b>\n\n" + "\n".join(f"• <code>{esc(p.name)}</code>" for p in items)
+
+
+def backups_kb() -> dict[str, Any]:
+    return kb([[("🆕 Создать", "b:create")], [("⬅️ Меню", "m:root")]])
 
 
 def text_settings() -> str:
@@ -330,27 +390,49 @@ def text_settings() -> str:
     masked = (tok[:6] + "…" + tok[-4:]) if len(tok) > 12 else "—"
     return (
         f"<b>Настройки</b>\n\n"
-        f"Token: <code>{masked}</code>\n"
-        f"Admin: <code>{CFG.get('ALLOWED_CHAT_IDS', '')}</code>\n"
-        f"<code>{BOT_ENV}</code>"
+        f"Token: <code>{esc(masked)}</code>\n"
+        f"Admin: <code>{esc(CFG.get('ALLOWED_CHAT_IDS', ''))}</code>\n"
+        f"Hostname: <code>{esc(hostname())}</code>\n"
+        f"Профиль default: <code>{'✓' if secret_default() else '—'}</code>\n"
+        f"<code>{esc(BOT_ENV)}</code>"
     )
 
 
-def run_doctor() -> str:
-    if is_docker():
-        out = sh(
-            ["docker", "compose", "-f", str(DOCKER_DIR / "docker-compose.yml"),
-             "--env-file", str(DOCKER_DIR / ".env"), "ps"],
-            timeout=15,
-        )
-        return f"<b>Doctor · docker</b>\n\n<pre>{out[-3000:]}</pre>"
-    try:
-        r = subprocess.run(["/opt/tgwebproxyr/tgwebproxyr.sh", "doctor"], capture_output=True, text=True, timeout=120)
-        out = ((r.stdout or "") + (r.stderr or ""))[-3000:]
-        return f"<b>Doctor</b>\n\n<pre>{out}</pre>"
-    except Exception as e:
-        return f"<b>Doctor</b>\n<code>{e}</code>"
+def do_backup() -> str:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = BACKUP_DIR / f"twpr-{stamp}"
+    dest.mkdir(parents=True)
+    for src in (SETTINGS, BOT_ENV, REGISTRY, DOCKER_DIR / ".env"):
+        if src.is_file():
+            shutil.copy2(src, dest / src.name)
+    (dest / "meta.json").write_text(
+        json.dumps({"created_at": stamp, "hostname": hostname()}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return str(dest)
 
+
+def proxy_action(action: str) -> str:
+    if is_docker():
+        if action == "start":
+            _compose("up", "-d", "--remove-orphans", timeout=60)
+        elif action == "stop":
+            _compose("stop", timeout=30)
+        else:
+            _compose("restart", timeout=45)
+    else:
+        units = ["mtproxy", "tproxy-server", "caddy"]
+        if action == "start":
+            sh(["systemctl", "start", *units], timeout=20)
+        elif action == "stop":
+            sh(["systemctl", "stop", "caddy", "tproxy-server", "mtproxy"], timeout=20)
+        else:
+            sh(["systemctl", "restart", *units], timeout=30)
+    return action
+
+
+# ── telegram IO ──────────────────────────────────────────────────────────────
 
 def send_message(chat_id: int, text: str, reply_markup: dict[str, Any] | None = None) -> None:
     payload: dict[str, Any] = {
@@ -361,7 +443,7 @@ def send_message(chat_id: int, text: str, reply_markup: dict[str, Any] | None = 
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    api("sendMessage", payload, timeout=10)
+    api("sendMessage", payload, timeout=8)
 
 
 def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict[str, Any] | None = None) -> None:
@@ -375,8 +457,10 @@ def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict[st
     if reply_markup:
         payload["reply_markup"] = reply_markup
     try:
-        api("editMessageText", payload, timeout=10)
-    except Exception:
+        api("editMessageText", payload, timeout=8)
+    except Exception as e:
+        if "not modified" in str(e).lower():
+            return
         send_message(chat_id, text, reply_markup)
 
 
@@ -385,16 +469,22 @@ def answer_cb(cb_id: str, text: str = "") -> None:
         payload: dict[str, Any] = {"callback_query_id": cb_id}
         if text:
             payload["text"] = text
-            payload["show_alert"] = False
-        api("answerCallbackQuery", payload, timeout=5)
+        api("answerCallbackQuery", payload, timeout=3)
     except Exception:
         pass
 
 
+def show(chat: int, mid: int | None, text: str, markup: dict[str, Any] | None) -> None:
+    if mid is not None:
+        edit_message(chat, mid, text, markup)
+    else:
+        send_message(chat, text, markup)
+
+
+# ── handlers ─────────────────────────────────────────────────────────────────
+
 def handle_callback(cq: dict[str, Any]) -> None:
     global CFG, TOKEN, ALLOWED
-    CFG, TOKEN, ALLOWED = reload_cfg()
-
     data = cq.get("data") or ""
     msg = cq.get("message") or {}
     chat = (msg.get("chat") or {}).get("id")
@@ -402,56 +492,119 @@ def handle_callback(cq: dict[str, Any]) -> None:
     cb_id = cq.get("id")
     if chat is None:
         return
-    answer_cb(cb_id)  # сразу — чтобы UI не «тупил»
+
+    # сразу ACK — иначе Telegram крутит «думает»
+    answer_cb(cb_id)
+    if data == "noop":
+        return
+
+    CFG, TOKEN, ALLOWED = reload_cfg()
     if not allowed(chat):
         send_message(chat, "⛔ Нет доступа.")
         return
 
-    if data == "menu":
-        edit_message(chat, mid, "<b>TgWebProxyR</b>\nВыберите раздел.", main_menu_kb())
+    if data in ("m:root", "menu"):
+        show(chat, mid, "<b>TgWebProxyR</b>\nВыберите раздел.", main_menu_kb())
         return
 
-    if data == "backup_create":
-        path = do_backup()
-        edit_message(chat, mid, f"<b>Бэкап</b>\n<code>{path}</code>", back_kb())
+    if data == "m:status":
+        show(chat, mid, text_status(), kb([[("🔃 Обновить", "m:status"), ("⬅️ Меню", "m:root")]]))
         return
 
-    if data == "user_add":
-        sec = pysecrets.token_hex(16)
-        profiles = load_profiles()
-        name = f"user{int(time.time()) % 100000}"
-        profiles.append({"name": name, "secret": sec, "backend": "127.0.0.1:2398", "carrier_mode": "https"})
+    if data == "m:proxy":
+        show(chat, mid, text_proxy(), proxy_kb())
+        return
+
+    if data.startswith("px:"):
+        action = data.split(":", 1)[1]
+        titles = {"start": "Запускаю…", "stop": "Останавливаю…", "restart": "Перезапускаю…"}
+        show(chat, mid, f"<b>{titles.get(action, action)}</b>", back_kb("m:proxy"))
         try:
-            save_profiles(profiles)
-            host = hostname()
-            edit_message(
-                chat,
-                mid,
-                f"<b>+ {name}</b>\n<code>{sec}</code>\n\n<code>{tg_link(host, sec)}</code>",
-                back_kb(),
-            )
+            proxy_action(action)
         except Exception as e:
-            edit_message(chat, mid, f"Ошибка: <code>{e}</code>", back_kb())
+            show(chat, mid, f"Ошибка: <code>{esc(e)}</code>", back_kb("m:proxy"))
+            return
+        show(chat, mid, text_proxy(), proxy_kb())
         return
 
-    mapping = {
-        "status": text_status,
-        "proxy": text_proxy,
-        "users": text_users,
-        "links": text_links,
-        "traffic": text_traffic,
-        "avail": text_avail,
-        "settings": text_settings,
-        "doctor": run_doctor,
-        "backups": text_backups,
-    }
-    if data in mapping:
-        extra = back_kb()
-        if data == "users":
-            extra = kb([[("➕ Secret", "user_add")], [("⬅️ Меню", "menu")]])
-        elif data == "backups":
-            extra = kb([[("🆕 Создать", "backup_create")], [("⬅️ Меню", "menu")]])
-        edit_message(chat, mid, mapping[data](), extra)
+    if data.startswith("u:list:"):
+        page = int(data.split(":")[-1] or 0)
+        body, markup = text_users_page(page)
+        show(chat, mid, body, markup)
+        return
+
+    if data == "u:add":
+        sec = pysecrets.token_hex(16)
+        name = f"user{int(time.time()) % 100000}"
+        profiles = load_profiles()
+        if any(p.get("name") == name for p in profiles):
+            name = f"user{pysecrets.token_hex(3)}"
+        profiles.append(
+            {"name": name, "secret": sec, "backend": "127.0.0.1:2398", "carrier_mode": "https"}
+        )
+        save_registry(profiles)
+        host = hostname()
+        note = ""
+        if is_docker():
+            note = "\n\n<i>В Docker движок сейчас принимает только default. Профиль сохранён в реестре.</i>"
+        show(
+            chat,
+            mid,
+            f"<b>+ {esc(name)}</b>\n<code>{esc(sec)}</code>\n\n"
+            f"<code>{esc(tg_link(host, sec))}</code>{note}",
+            kb([[("⬅️ К списку", "u:list:0")]]),
+        )
+        return
+
+    if data.startswith("u:show:"):
+        name = data.split(":", 2)[2]
+        body, markup = text_user_card(name)
+        show(chat, mid, body, markup)
+        return
+
+    if data.startswith("u:del:"):
+        name = data.split(":", 2)[2]
+        if name == "default":
+            show(chat, mid, "default нельзя удалить — только rotate на сервере.", back_kb("u:list:0"))
+            return
+        profiles = [p for p in load_profiles() if p.get("name") != name]
+        save_registry(profiles)
+        body, markup = text_users_page(0)
+        show(chat, mid, f"Удалён <b>{esc(name)}</b>\n\n" + body, markup)
+        return
+
+    if data.startswith("l:list:"):
+        page = int(data.split(":")[-1] or 0)
+        body, markup = text_links_page(page)
+        show(chat, mid, body, markup)
+        return
+
+    if data.startswith("l:show:"):
+        name = data.split(":", 2)[2]
+        body, markup = text_user_card(name)
+        show(chat, mid, body, markup)
+        return
+
+    if data == "m:logs":
+        show(chat, mid, text_logs(), logs_kb())
+        return
+
+    if data == "m:traffic":
+        show(chat, mid, text_traffic(), back_kb())
+        return
+
+    if data == "m:backups":
+        show(chat, mid, text_backups(), backups_kb())
+        return
+
+    if data == "b:create":
+        path = do_backup()
+        show(chat, mid, f"<b>Бэкап</b>\n<code>{esc(path)}</code>", backups_kb())
+        return
+
+    if data == "m:settings":
+        show(chat, mid, text_settings(), back_kb())
+        return
 
 
 def handle_message(msg: dict[str, Any]) -> None:
@@ -463,25 +616,29 @@ def handle_message(msg: dict[str, Any]) -> None:
     if chat is None:
         return
     if not allowed(chat):
-        send_message(chat, "⛔ Нет доступа. Пройдите setup на сервере ещё раз.")
+        send_message(chat, "⛔ Нет доступа.")
         return
 
     if text.startswith(("/start", "/menu")):
         send_message(chat, "<b>TgWebProxyR</b>\nВыберите раздел.", main_menu_kb())
         return
-    cmds = {
-        "/help": ("Команды: /menu /status /links /users /traffic /backups /doctor", main_menu_kb()),
-        "/status": (text_status, back_kb),
-        "/links": (text_links, back_kb),
-        "/users": (text_users, lambda: kb([[("➕ Secret", "user_add")], [("⬅️ Меню", "menu")]])),
-        "/traffic": (text_traffic, back_kb),
-        "/backups": (text_backups, lambda: kb([[("🆕 Создать", "backup_create")], [("⬅️ Меню", "menu")]])),
-        "/doctor": (run_doctor, back_kb),
+
+    mapping: dict[str, tuple[Any, Any]] = {
+        "/status": (text_status, lambda: kb([[("🔃 Обновить", "m:status"), ("⬅️ Меню", "m:root")]])),
+        "/proxy": (text_proxy, proxy_kb),
+        "/users": (lambda: text_users_page(0)[0], lambda: text_users_page(0)[1]),
+        "/links": (lambda: text_links_page(0)[0], lambda: text_links_page(0)[1]),
+        "/logs": (text_logs, logs_kb),
+        "/help": (
+            lambda: "Команды: /menu /status /proxy /users /links /logs /backups",
+            main_menu_kb,
+        ),
     }
-    for prefix, val in cmds.items():
+    for prefix, (body, mk) in mapping.items():
         if text.startswith(prefix):
-            body, mk = val
-            send_message(chat, body() if callable(body) else body, mk() if callable(mk) else mk)
+            b = body() if callable(body) else body
+            m = mk() if callable(mk) else mk
+            send_message(chat, b, m)
             return
     send_message(chat, "Откройте /menu", main_menu_kb())
 
@@ -492,10 +649,27 @@ def main() -> None:
     if not TOKEN:
         raise SystemExit("BOT_TOKEN не задан — tgwebproxyr bot setup")
     if not ALLOWED:
-        raise SystemExit("ALLOWED_CHAT_IDS пуст — tgwebproxyr bot setup (token → /start)")
+        raise SystemExit("ALLOWED_CHAT_IDS пуст — tgwebproxyr bot setup")
+
+    # зарегистрировать default сразу при старте
+    load_profiles()
 
     try:
-        api("deleteWebhook", {"drop_pending_updates": True}, timeout=10)
+        api("deleteWebhook", {"drop_pending_updates": True}, timeout=8)
+        api(
+            "setMyCommands",
+            {
+                "commands": [
+                    {"command": "menu", "description": "Главное меню"},
+                    {"command": "status", "description": "Статус"},
+                    {"command": "proxy", "description": "Управление прокси"},
+                    {"command": "users", "description": "Пользователи"},
+                    {"command": "links", "description": "Ссылки"},
+                    {"command": "logs", "description": "Логи"},
+                ]
+            },
+            timeout=8,
+        )
     except Exception:
         pass
 
@@ -516,7 +690,7 @@ def main() -> None:
                     handle_message(upd["message"])
         except Exception as e:
             print(f"poll: {e}", flush=True)
-            time.sleep(1.5)
+            time.sleep(1.2)
 
 
 if __name__ == "__main__":

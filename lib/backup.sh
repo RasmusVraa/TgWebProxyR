@@ -24,13 +24,10 @@ TWPR_backup_create() {
   for f in \
     /etc/tgwebproxyr/settings.env \
     /etc/tgwebproxyr/bot.env \
-    /etc/tproxy-server/profiles.json \
-    /etc/tproxy-server/config.json \
-    /etc/caddy/Caddyfile \
-    /etc/mtproxy/mtproxy.env \
-    "${TWPR_ROOT}/docker/.env"; do
+    /etc/tgwebproxyr/profiles.json; do
     [[ -f "$f" ]] && cp -a "$f" "$dest/"
   done
+  [[ -f "${TWPR_ROOT}/docker/.env" ]] && cp -a "${TWPR_ROOT}/docker/.env" "$dest/docker.env"
   cat >"$dest/meta.json" <<EOF
 {"created_at":"${stamp}","hostname":"${TWPR_HOSTNAME:-}","version":"${TWPR_VERSION:-}","mode":"${TWPR_DEPLOY_MODE:-}"}
 EOF
@@ -42,8 +39,7 @@ TWPR_backup_list() {
   echo ""
   echo -e "  ${C_BOLD}Бэкапы${C_RESET} → ${TWPR_BACKUP_DIR}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
-  local d
-  local found=0
+  local d found=0
   for d in "$TWPR_BACKUP_DIR"/twpr-*; do
     [[ -d "$d" ]] || continue
     found=1
@@ -65,21 +61,20 @@ TWPR_backup_restore() {
   TWPR_ask_yn choice "Продолжить" "n"
   [[ "$choice" == "yes" ]] || return 0
 
+  mkdir -p /etc/tgwebproxyr
   [[ -f "$src/settings.env" ]] && cp -a "$src/settings.env" /etc/tgwebproxyr/settings.env
   [[ -f "$src/bot.env" ]] && cp -a "$src/bot.env" /etc/tgwebproxyr/bot.env
-  [[ -f "$src/profiles.json" ]] && install -m 0400 "$src/profiles.json" /etc/tproxy-server/profiles.json
-  [[ -f "$src/config.json" ]] && cp -a "$src/config.json" /etc/tproxy-server/config.json
-  [[ -f "$src/Caddyfile" ]] && cp -a "$src/Caddyfile" /etc/caddy/Caddyfile
-  [[ -f "$src/mtproxy.env" ]] && cp -a "$src/mtproxy.env" /etc/mtproxy/mtproxy.env
-  if [[ -f "$src/.env" ]]; then
-    mkdir -p "${TWPR_ROOT}/docker"
-    cp -a "$src/.env" "${TWPR_ROOT}/docker/.env"
-  fi
+  [[ -f "$src/profiles.json" ]] && install -m 0600 "$src/profiles.json" /etc/tgwebproxyr/profiles.json
+  [[ -f "$src/docker.env" ]] && { mkdir -p "${TWPR_ROOT}/docker"; cp -a "$src/docker.env" "${TWPR_ROOT}/docker/.env"; }
+  [[ -f "$src/.env" ]] && { mkdir -p "${TWPR_ROOT}/docker"; cp -a "$src/.env" "${TWPR_ROOT}/docker/.env"; }
 
   TWPR_load_state
+  TWPR_ensure_default_profile 2>/dev/null || true
   if TWPR_is_docker; then
     TWPR_docker_compose up -d --force-recreate --remove-orphans 2>/dev/null || true
   else
+    [[ -f /etc/tgwebproxyr/profiles.json ]] \
+      && install -m 0400 /etc/tgwebproxyr/profiles.json /etc/tproxy-server/profiles.json 2>/dev/null || true
     systemctl restart mtproxy tproxy-server caddy tgwebproxyr-bot 2>/dev/null || true
   fi
   TWPR_ok "Восстановлено"

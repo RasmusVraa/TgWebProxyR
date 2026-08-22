@@ -1,16 +1,79 @@
 #!/usr/bin/env bash
-# TgWebProxyR — secret / profile helpers (Docker + Native)
+# TgWebProxyR — secret / profile helpers
+# Единый реестр профилей на хосте: /etc/tgwebproxyr/profiles.json
+# Первый профиль всегда «default» (= TWPR_SECRET).
 
-TWPR_PROFILES_FILE="${TWPR_PROFILES_FILE:-/etc/tproxy-server/profiles.json}"
+TWPR_ENGINE_PROFILES="${TWPR_ENGINE_PROFILES:-/etc/tproxy-server/profiles.json}"
+TWPR_REGISTRY="${TWPR_REGISTRY:-${TWPR_STATE_DIR}/profiles.json}"
 
-TWPR_profiles_path() {
-  if TWPR_is_docker; then
-    # в Docker профили внутри volume; основной secret — в .env / settings
-    echo ""
-    return 1
+# Создаёт/синхронизирует профиль default везде (реестр + native engine)
+TWPR_ensure_default_profile() {
+  [[ -n "${TWPR_SECRET:-}" ]] || return 0
+  mkdir -p "$TWPR_STATE_DIR"
+  local backend="127.0.0.1:${TWPR_PORT_MTPROXY:-2398}"
+  local secret="$TWPR_SECRET"
+  # dd-префикс для tproxy не нужен в profiles — только 32 hex
+  case "$secret" in
+    dd????????????????????????????????) secret="${secret#dd}" ;;
+  esac
+
+  if command -v jq >/dev/null 2>&1; then
+    local tmp
+    tmp="$(mktemp)"
+    if [[ -f "$TWPR_REGISTRY" ]]; then
+      jq --arg s "$secret" --arg b "$backend" '
+        .profiles = ((.profiles // []) | map(select(.name != "default")))
+        | .profiles = [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}] + .profiles
+      ' "$TWPR_REGISTRY" >"$tmp" 2>/dev/null \
+        || printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https"}]}\n' \
+             "$secret" "$backend" >"$tmp"
+    else
+      printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https"}]}\n' \
+        "$secret" "$backend" >"$tmp"
+    fi
+    install -m 0600 "$tmp" "$TWPR_REGISTRY"
+    rm -f "$tmp"
+
+    # native engine — тот же default первым
+    if ! TWPR_is_docker 2>/dev/null; then
+      if [[ -f "$TWPR_ENGINE_PROFILES" ]]; then
+        tmp="$(mktemp)"
+        jq --arg s "$secret" --arg b "$backend" '
+          .profiles = ((.profiles // []) | map(select(.name != "default")))
+          | .profiles = [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}] + .profiles
+        ' "$TWPR_ENGINE_PROFILES" >"$tmp" 2>/dev/null && install -m 0400 "$tmp" "$TWPR_ENGINE_PROFILES"
+        rm -f "$tmp"
+      else
+        mkdir -p "$(dirname "$TWPR_ENGINE_PROFILES")"
+        printf '{"profiles":[{"name":"default","secret":"%s","backend":"%s","carrier_mode":"https"}]}\n' \
+          "$secret" "$backend" >"$TWPR_ENGINE_PROFILES"
+        chmod 0400 "$TWPR_ENGINE_PROFILES" 2>/dev/null || true
+      fi
+    fi
+  else
+    # без jq — минимальный реестр только с default
+    umask 077
+    cat >"$TWPR_REGISTRY" <<EOF
+{
+  "profiles": [
+    {
+      "name": "default",
+      "secret": "${secret}",
+      "backend": "${backend}",
+      "carrier_mode": "https"
+    }
+  ]
+}
+EOF
+    chmod 600 "$TWPR_REGISTRY"
   fi
-  [[ -f "$TWPR_PROFILES_FILE" ]] || return 1
-  echo "$TWPR_PROFILES_FILE"
+}
+
+TWPR_registry_get_secret() {
+  local name="${1:-default}"
+  if [[ -f "$TWPR_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    jq -r --arg n "$name" '.profiles[]? | select(.name==$n) | .secret' "$TWPR_REGISTRY" 2>/dev/null | head -1
+  fi
 }
 
 TWPR_cmd_secret_show() {
@@ -18,62 +81,59 @@ TWPR_cmd_secret_show() {
   if TWPR_is_docker; then
     TWPR_docker_ensure_env 2>/dev/null || true
   fi
-  if [[ -z "${TWPR_SECRET:-}" ]]; then
+  TWPR_ensure_default_profile
+  local sec="${TWPR_SECRET:-}"
+  [[ -z "$sec" ]] && sec="$(TWPR_registry_get_secret default)"
+  if [[ -z "$sec" ]]; then
     TWPR_err "Secret не сохранён"
     return 1
   fi
-  echo "$TWPR_SECRET"
+  echo "$sec"
 }
 
 TWPR_cmd_secret_list() {
   TWPR_load_state
-  echo -e "  ${C_BOLD}Secrets${C_RESET}"
-  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
   if TWPR_is_docker; then
     TWPR_docker_ensure_env 2>/dev/null || true
-    if [[ -n "${TWPR_SECRET:-}" ]]; then
-      TWPR_ok "default  …${TWPR_SECRET: -4}  ${C_DIM}(Docker · один shared secret)${C_RESET}"
-    else
-      TWPR_warn "пусто"
-    fi
+  fi
+  TWPR_ensure_default_profile
+  echo -e "  ${C_BOLD}Профили${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  if [[ -f "$TWPR_REGISTRY" ]] && command -v jq >/dev/null 2>&1; then
+    jq -r '.profiles[]? | "  \(.name)\t…\(.secret[-4:])\t\(.backend // "-")"' \
+      "$TWPR_REGISTRY" 2>/dev/null || true
     return 0
   fi
-  if [[ ! -f "$TWPR_PROFILES_FILE" ]] || ! command -v jq >/dev/null 2>&1; then
-    if [[ -n "${TWPR_SECRET:-}" ]]; then
-      TWPR_ok "default  …${TWPR_SECRET: -4}"
-    else
-      TWPR_warn "profiles.json нет — сначала setup"
-    fi
-    return 0
+  if [[ -n "${TWPR_SECRET:-}" ]]; then
+    TWPR_ok "default  …${TWPR_SECRET: -4}"
+  else
+    TWPR_warn "пусто"
   fi
-  jq -r '.profiles[]? | "  \(.name)\t…\(.secret[-4:])\t\(.backend // "-")"' \
-    "$TWPR_PROFILES_FILE" 2>/dev/null || TWPR_warn "не удалось прочитать profiles"
 }
 
 TWPR_cmd_secret_link() {
-  local name="${1:-}"
+  local name="${1:-default}"
   TWPR_load_state
   if TWPR_is_docker; then
     TWPR_docker_ensure_env 2>/dev/null || true
   fi
+  TWPR_ensure_default_profile
   if [[ -z "$name" || "$name" == "default" ]]; then
     TWPR_cmd_link
     return
   fi
-  if TWPR_is_docker; then
-    TWPR_warn "В Docker один shared secret — используйте: tgwebproxyr link"
-    TWPR_cmd_link
-    return
-  fi
-  [[ -f "$TWPR_PROFILES_FILE" ]] || { TWPR_err "нет profiles.json"; return 1; }
   local secret
-  secret="$(jq -r --arg n "$name" '.profiles[] | select(.name==$n) | .secret' "$TWPR_PROFILES_FILE" 2>/dev/null | head -1)"
+  secret="$(TWPR_registry_get_secret "$name")"
   if [[ -z "$secret" || "$secret" == "null" ]]; then
     TWPR_err "Профиль не найден: ${name}"
     return 1
   fi
   echo ""
-  echo -e "  ${C_BOLD}${name}${C_RESET}"
+  echo -e "  ${C_BOLD}Профиль  ${name}${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  echo "  Hostname  ${TWPR_HOSTNAME}"
+  echo "  Secret    ${secret}"
+  echo ""
   echo "  $(TWPR_tg_link "${TWPR_HOSTNAME}" "$secret")"
   echo "  $(TWPR_web_link "${TWPR_HOSTNAME}" "$secret")"
 }
@@ -82,6 +142,7 @@ TWPR_secret_apply_docker() {
   local new_secret="$1"
   TWPR_SECRET="$new_secret"
   TWPR_save_state
+  TWPR_ensure_default_profile
   TWPR_docker_write_env
   TWPR_info "Пересоздаю контейнеры с новым secret…"
   TWPR_docker_compose up -d --force-recreate --remove-orphans
@@ -90,109 +151,125 @@ TWPR_secret_apply_docker() {
 TWPR_cmd_secret_rotate() {
   TWPR_require_root
   TWPR_load_state
-  local new_secret choice="" name="${1:-}"
+  local new_secret choice="" name="${1:-default}"
+  [[ -z "$name" ]] && name="default"
   new_secret="$(TWPR_gen_secret)"
-  TWPR_info "Новый secret: ${C_BOLD}${new_secret}${C_RESET}"
+  TWPR_info "Новый secret (${name}): ${C_BOLD}${new_secret}${C_RESET}"
   TWPR_ask_yn choice "Записать и перезапустить" "Y"
   [[ "$choice" == "yes" ]] || return 0
 
-  if TWPR_is_docker; then
-    TWPR_secret_apply_docker "$new_secret"
-    TWPR_ok "Secret обновлён (Docker)"
+  if [[ "$name" == "default" ]]; then
+    if TWPR_is_docker; then
+      TWPR_secret_apply_docker "$new_secret"
+      TWPR_ok "default обновлён (Docker)"
+      TWPR_cmd_link
+      return 0
+    fi
+    TWPR_SECRET="$new_secret"
+    TWPR_save_state
+    TWPR_ensure_default_profile
+    if [[ -f /etc/mtproxy/mtproxy.env ]]; then
+      sed -i "s/^MTPROXY_SECRET=.*/MTPROXY_SECRET=${new_secret}/" /etc/mtproxy/mtproxy.env || true
+    fi
+    systemctl restart mtproxy tproxy-server 2>/dev/null || true
+    TWPR_ok "default обновлён"
     TWPR_cmd_link
     return 0
   fi
 
-  if [[ ! -f "$TWPR_PROFILES_FILE" ]]; then
-    TWPR_err "Не найден ${TWPR_PROFILES_FILE} — сначала setup"
-    return 1
-  fi
+  # другой профиль — только реестр (+ engine native)
+  TWPR_ensure_default_profile
   if ! command -v jq >/dev/null 2>&1; then
     TWPR_err "Нужен jq"
     return 1
   fi
-
   local tmp
   tmp="$(mktemp)"
-  if [[ -n "$name" && "$name" != "default" ]]; then
+  jq --arg n "$name" --arg s "$new_secret" '
+    .profiles |= map(if .name == $n then .secret = $s else . end)
+  ' "$TWPR_REGISTRY" >"$tmp"
+  install -m 0600 "$tmp" "$TWPR_REGISTRY"
+  rm -f "$tmp"
+  if ! TWPR_is_docker && [[ -f "$TWPR_ENGINE_PROFILES" ]]; then
+    tmp="$(mktemp)"
     jq --arg n "$name" --arg s "$new_secret" '
       .profiles |= map(if .name == $n then .secret = $s else . end)
-    ' "$TWPR_PROFILES_FILE" >"$tmp"
-  else
-    jq --arg s "$new_secret" '
-      .profiles |= map(if .name == "default" or (. | length) == 1 then .secret = $s else . end)
-      | if (.profiles | length) == 0 then
-          {profiles:[{name:"default",secret:$s,backend:"127.0.0.1:2398",carrier_mode:"https"}]}
-        else . end
-    ' "$TWPR_PROFILES_FILE" >"$tmp"
-    TWPR_SECRET="$new_secret"
-    TWPR_save_state
+    ' "$TWPR_ENGINE_PROFILES" >"$tmp"
+    install -m 0400 "$tmp" "$TWPR_ENGINE_PROFILES"
+    rm -f "$tmp"
+    systemctl restart tproxy-server 2>/dev/null || true
   fi
-  install -m 0400 "$tmp" "$TWPR_PROFILES_FILE"
-  rm -f "$tmp"
-
-  if [[ -z "$name" || "$name" == "default" ]] && [[ -f /etc/mtproxy/mtproxy.env ]]; then
-    sed -i "s/^MTPROXY_SECRET=.*/MTPROXY_SECRET=${new_secret}/" /etc/mtproxy/mtproxy.env || true
-  fi
-
-  systemctl restart mtproxy tproxy-server 2>/dev/null || true
-  TWPR_ok "Secret обновлён"
-  TWPR_cmd_secret_link "${name:-default}"
+  TWPR_ok "Профиль ${name} обновлён"
+  TWPR_cmd_secret_link "$name"
 }
 
 TWPR_cmd_secret_add() {
   TWPR_require_root
   TWPR_load_state
-  if TWPR_is_docker; then
-    TWPR_err "В Docker сейчас один shared secret. Для нескольких профилей — native install."
-    return 1
-  fi
+  TWPR_ensure_default_profile
   local name secret backend
   name="${1:-}"
   [[ -n "$name" ]] || TWPR_ask name "Имя профиля" "user$(date +%s | tail -c 5)"
+  [[ "$name" == "default" ]] && { TWPR_err "default уже есть — используйте rotate"; return 1; }
   secret="$(TWPR_gen_secret)"
-  TWPR_ask backend "Backend loopback" "127.0.0.1:${TWPR_PORT_MTPROXY:-2398}"
+  backend="127.0.0.1:${TWPR_PORT_MTPROXY:-2398}"
   TWPR_info "Secret для ${name}: ${secret}"
 
-  [[ -f "$TWPR_PROFILES_FILE" ]] || {
-    TWPR_err "Сначала выполните setup"
+  if ! command -v jq >/dev/null 2>&1; then
+    TWPR_err "Нужен jq"
     return 1
-  }
-
+  fi
   local tmp
   tmp="$(mktemp)"
   jq --arg n "$name" --arg s "$secret" --arg b "$backend" '
     .profiles += [{name:$n, secret:$s, backend:$b, carrier_mode:"https"}]
-  ' "$TWPR_PROFILES_FILE" >"$tmp"
-  install -m 0400 "$tmp" "$TWPR_PROFILES_FILE"
+  ' "$TWPR_REGISTRY" >"$tmp"
+  install -m 0600 "$tmp" "$TWPR_REGISTRY"
   rm -f "$tmp"
-  systemctl restart tproxy-server
+
+  if TWPR_is_docker; then
+    TWPR_warn "В Docker движок сейчас слушает только default (TWPR_SECRET)."
+    TWPR_warn "Профиль сохранён в реестре бота/CLI; для нескольких WEB-секретов — native."
+  elif [[ -f "$TWPR_ENGINE_PROFILES" ]]; then
+    tmp="$(mktemp)"
+    jq --arg n "$name" --arg s "$secret" --arg b "$backend" '
+      .profiles += [{name:$n, secret:$s, backend:$b, carrier_mode:"https"}]
+    ' "$TWPR_ENGINE_PROFILES" >"$tmp"
+    install -m 0400 "$tmp" "$TWPR_ENGINE_PROFILES"
+    rm -f "$tmp"
+    systemctl restart tproxy-server
+  fi
   TWPR_ok "Профиль ${name} добавлен"
-  echo "  $(TWPR_tg_link "${TWPR_HOSTNAME}" "$secret")"
-  echo "  $(TWPR_web_link "${TWPR_HOSTNAME}" "$secret")"
+  TWPR_cmd_secret_link "$name"
 }
 
 TWPR_cmd_secret_remove() {
   TWPR_require_root
   TWPR_load_state
-  if TWPR_is_docker; then
-    TWPR_err "В Docker один secret — используйте rotate, не remove"
-    return 1
-  fi
   local name="${1:-}" choice=""
   [[ -n "$name" ]] || TWPR_ask name "Имя профиля для удаления"
   [[ "$name" == "default" ]] && {
-    TWPR_err "default лучше rotate, а не remove"
+    TWPR_err "default нельзя удалить — только rotate"
     return 1
   }
-  [[ -f "$TWPR_PROFILES_FILE" ]] || { TWPR_err "нет profiles.json"; return 1; }
+  TWPR_ensure_default_profile
   TWPR_ask_yn choice "Удалить профиль ${name}" "n"
   [[ "$choice" == "yes" ]] || return 0
+  if ! command -v jq >/dev/null 2>&1; then
+    TWPR_err "Нужен jq"
+    return 1
+  fi
   local tmp
   tmp="$(mktemp)"
-  jq --arg n "$name" '.profiles |= map(select(.name != $n))' "$TWPR_PROFILES_FILE" >"$tmp"
-  install -m 0400 "$tmp" "$TWPR_PROFILES_FILE"
+  jq --arg n "$name" '.profiles |= map(select(.name != $n))' "$TWPR_REGISTRY" >"$tmp"
+  install -m 0600 "$tmp" "$TWPR_REGISTRY"
   rm -f "$tmp"
-  systemctl restart tproxy-server
+  if ! TWPR_is_docker && [[ -f "$TWPR_ENGINE_PROFILES" ]]; then
+    tmp="$(mktemp)"
+    jq --arg n "$name" '.profiles |= map(select(.name != $n))' "$TWPR_ENGINE_PROFILES" >"$tmp"
+    install -m 0400 "$tmp" "$TWPR_ENGINE_PROFILES"
+    rm -f "$tmp"
+    systemctl restart tproxy-server
+  fi
   TWPR_ok "Удалён: ${name}"
 }

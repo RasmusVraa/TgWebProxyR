@@ -74,6 +74,10 @@ TWPR_DEPLOY_MODE='${TWPR_DEPLOY_MODE:-native}'
 EOF
   chmod 600 "${TWPR_STATE_DIR}/settings.env"
   umask "$old_umask"
+  # профиль default всегда в реестре (бот / CLI / ссылки)
+  if declare -F TWPR_ensure_default_profile >/dev/null 2>&1; then
+    TWPR_ensure_default_profile
+  fi
 }
 
 TWPR_detect_public_ip() {
