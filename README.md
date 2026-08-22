@@ -359,7 +359,7 @@ sudo tgwebproxyr bot update
 
 - [telegramdesktop/tproxy-server](https://github.com/telegramdesktop/tproxy-server)
 - [TelegramMessenger/MTProxy](https://github.com/TelegramMessenger/MTProxy)
-- UX CLI вдохновлён [MTProxyL](https://github.com/Liafanx/MTProxyL) — это отдельный проект под тип **WEB**
+- UX CLI вдохновлён [MTProxyL](https://github.com/Liafanx/MTProxyL) — это отдельный проект под тип **MTProto**
 
 ## Лицензия
 
