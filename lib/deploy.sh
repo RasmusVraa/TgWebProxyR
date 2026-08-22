@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TgWebProxyR — guided install wizard + engine deploy
 
-TWPR_TOTAL_STEPS=8
+TWPR_TOTAL_STEPS=9
 
 TWPR_fetch_engine() {
   TWPR_ensure_deps
@@ -151,7 +151,7 @@ TWPR_wizard_ask_secret() {
 }
 
 TWPR_wizard_ask_capacity() {
-  TWPR_step 5 "$TWPR_TOTAL_STEPS" "Нагрузка MTProxy"
+  TWPR_step 6 "$TWPR_TOTAL_STEPS" "Нагрузка MTProxy"
   local workers maxc
   TWPR_ask workers "Workers (для старта обычно 1)" "${TWPR_MTPROXY_WORKERS:-1}"
   TWPR_ask maxc "Max connections / worker" "${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
@@ -161,7 +161,7 @@ TWPR_wizard_ask_capacity() {
 }
 
 TWPR_wizard_check_dns() {
-  TWPR_step 6 "$TWPR_TOTAL_STEPS" "DNS и фаервол"
+  TWPR_step 7 "$TWPR_TOTAL_STEPS" "DNS и фаервол"
   local ip dig_out choice=""
   ip="$(TWPR_detect_public_ip || true)"
   if [[ -n "$ip" ]]; then
@@ -192,19 +192,23 @@ TWPR_wizard_check_dns() {
   fi
 
   TWPR_open_firewall
-  TWPR_info "В панели хостинга тоже откройте TCP 80 и 443"
+  TWPR_info "В панели хостинга откройте TCP ${TWPR_PORT_HTTP:-80} и ${TWPR_PORT_HTTPS:-443}"
 }
 
 TWPR_wizard_confirm() {
-  TWPR_step 7 "$TWPR_TOTAL_STEPS" "Подтверждение"
+  TWPR_step 8 "$TWPR_TOTAL_STEPS" "Подтверждение"
   echo ""
   echo -e "  ${C_BOLD}Будет установлено:${C_RESET}"
   echo "    hostname : ${TWPR_HOSTNAME}"
   echo "    email    : ${TWPR_EMAIL}"
   echo "    secret   : ${TWPR_SECRET}"
   echo "    workers  : ${TWPR_MTPROXY_WORKERS}"
+  echo "    HTTP     : ${TWPR_PORT_HTTP:-80}"
+  echo "    HTTPS    : ${TWPR_PORT_HTTPS:-443}"
+  echo "    relay    : ${TWPR_PORT_RELAY:-8080} (localhost)"
+  echo "    admin    : ${TWPR_PORT_ADMIN:-8081} (localhost)"
+  echo "    mtproxy  : ${TWPR_PORT_MTPROXY:-2398} (localhost)"
   echo "    сайт     : ${TWPR_SITE_DIR}"
-  echo "    порты    : 80/443 снаружи"
   echo ""
   local choice=""
   TWPR_ask_yn choice "Начать установку движка" "Y"
@@ -215,10 +219,20 @@ TWPR_wizard_confirm() {
 }
 
 TWPR_wizard_deploy() {
-  TWPR_step 8 "$TWPR_TOTAL_STEPS" "Установка движка"
+  TWPR_step 9 "$TWPR_TOTAL_STEPS" "Установка движка"
   TWPR_fetch_engine
   TWPR_prepare_site
   TWPR_run_official_install
+  # Official installer always writes 80/443/8080/8081/2398 — patch if custom
+  if [[ "${TWPR_PORT_HTTP:-80}" != "80" \
+     || "${TWPR_PORT_HTTPS:-443}" != "443" \
+     || "${TWPR_PORT_RELAY:-8080}" != "8080" \
+     || "${TWPR_PORT_ADMIN:-8081}" != "8081" \
+     || "${TWPR_PORT_MTPROXY:-2398}" != "2398" ]]; then
+    TWPR_apply_ports
+  else
+    TWPR_ok "Стандартные порты — патч не нужен"
+  fi
 }
 
 TWPR_wizard_done() {
@@ -249,6 +263,7 @@ TWPR_cmd_setup() {
   TWPR_wizard_ask_domain
   TWPR_wizard_ask_email
   TWPR_wizard_ask_secret
+  TWPR_wizard_ask_ports
   TWPR_wizard_ask_capacity
   TWPR_wizard_check_dns
   TWPR_wizard_confirm
@@ -292,5 +307,6 @@ TWPR_cmd_reinstall() {
   TWPR_fetch_engine
   TWPR_prepare_site
   TWPR_run_official_install
+  TWPR_apply_ports
   TWPR_cmd_link
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0 — 2026-08-22
+
+- Выбор рабочих портов в мастере (HTTP/HTTPS/relay/admin/mtproxy)
+- Патч Caddyfile, config.json, profiles, mtproxy.service, nftables после install
+- Предупреждение: Telegram WEB-клиент всегда ждёт HTTPS :443
+
 ## 1.1.1 — 2026-08-22
 
 - Ввод мастера читает `/dev/tty` (фикс спама при `curl | bash`)

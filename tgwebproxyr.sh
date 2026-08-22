@@ -15,6 +15,8 @@ source "${TWPR_ROOT}/lib/colors.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/utils.sh"
 # shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/ports.sh"
+# shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/status.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/deploy.sh"
@@ -52,9 +54,9 @@ TWPR_dashboard() {
     st_relay="$(TWPR_service_state tproxy-server)"
     st_mp="$(TWPR_service_state mtproxy)"
     st_caddy="$(TWPR_service_state caddy)"
-    if curl -fsS --max-time 2 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+    if curl -fsS --max-time 2 "http://127.0.0.1:${TWPR_PORT_ADMIN:-8081}/readyz" >/dev/null 2>&1; then
       health="${C_GREEN}ready${C_RESET}"
-    elif curl -fsS --max-time 2 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+    elif curl -fsS --max-time 2 "http://127.0.0.1:${TWPR_PORT_ADMIN:-8081}/healthz" >/dev/null 2>&1; then
       health="${C_YELLOW}alive / backend down${C_RESET}"
     else
       health="${C_RED}down${C_RESET}"
@@ -62,6 +64,7 @@ TWPR_dashboard() {
 
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
       echo -e "  host    ${C_BOLD}${TWPR_HOSTNAME}${C_RESET}"
+      echo -e "  ports   HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443} · relay ${TWPR_PORT_RELAY:-8080}"
       echo -e "  relay   ${st_relay}   mtproxy ${st_mp}   caddy ${st_caddy}"
       echo -e "  health  ${health}"
     else

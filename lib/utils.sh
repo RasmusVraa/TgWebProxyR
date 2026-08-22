@@ -54,6 +54,11 @@ TWPR_INSTALLED_AT='${TWPR_INSTALLED_AT:-}'
 TWPR_ENGINE_REF='${TWPR_ENGINE_REF:-master}'
 TWPR_MTPROXY_WORKERS='${TWPR_MTPROXY_WORKERS:-1}'
 TWPR_MTPROXY_MAX_CONNECTIONS='${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}'
+TWPR_PORT_HTTP='${TWPR_PORT_HTTP:-80}'
+TWPR_PORT_HTTPS='${TWPR_PORT_HTTPS:-443}'
+TWPR_PORT_RELAY='${TWPR_PORT_RELAY:-8080}'
+TWPR_PORT_ADMIN='${TWPR_PORT_ADMIN:-8081}'
+TWPR_PORT_MTPROXY='${TWPR_PORT_MTPROXY:-2398}'
 EOF
   chmod 600 "${TWPR_STATE_DIR}/settings.env"
   umask "$old_umask"
@@ -141,14 +146,6 @@ TWPR_service_state() {
     echo "inactive"
   else
     echo "missing"
-  fi
-}
-
-TWPR_open_firewall() {
-  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi 'Status: active'; then
-    TWPR_info "UFW активен — открываю 80/tcp и 443/tcp"
-    ufw allow 80/tcp >/dev/null 2>&1 || true
-    ufw allow 443/tcp >/dev/null 2>&1 || true
   fi
 }
 

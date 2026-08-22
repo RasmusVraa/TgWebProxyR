@@ -3,6 +3,7 @@
 
 TWPR_cmd_status() {
   TWPR_load_state
+  local admin="${TWPR_PORT_ADMIN:-8081}"
   echo ""
   echo -e "  ${C_BOLD}Статус сервисов${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
@@ -19,12 +20,15 @@ TWPR_cmd_status() {
   done
 
   echo ""
-  if curl -fsS --max-time 3 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+  TWPR_info "Порты: HTTP ${TWPR_PORT_HTTP:-80} · HTTPS ${TWPR_PORT_HTTPS:-443} · relay ${TWPR_PORT_RELAY:-8080} · admin ${admin} · mtproxy ${TWPR_PORT_MTPROXY:-2398}"
+
+  echo ""
+  if curl -fsS --max-time 3 "http://127.0.0.1:${admin}/healthz" >/dev/null 2>&1; then
     TWPR_ok "relay healthz OK"
   else
     TWPR_warn "relay healthz недоступен"
   fi
-  if curl -fsS --max-time 3 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+  if curl -fsS --max-time 3 "http://127.0.0.1:${admin}/readyz" >/dev/null 2>&1; then
     TWPR_ok "relay readyz OK (backend жив)"
   else
     TWPR_warn "relay readyz = backend не готов"
@@ -33,7 +37,12 @@ TWPR_cmd_status() {
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     echo ""
     TWPR_info "Hostname: ${TWPR_HOSTNAME}"
-    TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
+    if [[ "${TWPR_PORT_HTTPS:-443}" == "443" ]]; then
+      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
+    else
+      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}:${TWPR_PORT_HTTPS}/"
+      TWPR_warn "Telegram WEB всё равно стучится на :443 — нужен DNAT/фронт"
+    fi
   fi
 }
 
@@ -60,7 +69,9 @@ TWPR_cmd_link() {
 }
 
 TWPR_cmd_metrics() {
-  if ! curl -fsS --max-time 3 http://127.0.0.1:8081/metrics 2>/dev/null; then
+  local admin="${TWPR_PORT_ADMIN:-8081}"
+  TWPR_load_state
+  if ! curl -fsS --max-time 3 "http://127.0.0.1:${admin}/metrics" 2>/dev/null; then
     TWPR_err "Метрики недоступны (нужен работающий tproxy-server)"
     return 1
   fi
