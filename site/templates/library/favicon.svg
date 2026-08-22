@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Cedar Branch Library">
+  <rect width="64" height="64" rx="8" fill="#1e3a8a"/>
+  <path d="M14 14 h36 v36 H14 z M20 22 h24 M20 30 h24 M20 38 h16" fill="none" stroke="#f8fafc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="14" r="3" fill="#93c5fd"/>
+</svg>

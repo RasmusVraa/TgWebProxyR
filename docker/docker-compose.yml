@@ -66,7 +66,7 @@ services:
       TWPR_ADMIN_LISTEN: 127.0.0.1:8081
       TWPR_LISTEN: 127.0.0.1:8080
     volumes:
-      - ../site:/srv/tproxy-site:ro
+      - /srv/tproxy-site:/srv/tproxy-site:ro
       - relay_cfg:/etc/tproxy-server
       - /etc/tgwebproxyr/profiles.json:/run/twpr/profiles.json:ro
       - ./entrypoint-relay.sh:/usr/local/bin/entrypoint-relay.sh:ro

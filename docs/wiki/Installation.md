@@ -74,7 +74,20 @@ wget -qO /tmp/twpr.sh \
 
 После обновления до **1.6.12** (Docker): `sudo tgwebproxyr secret apply` — подтянуть новый relay и mtproxy (`--nat-info`, трафик по пользователям).
 
-Актуальный релиз: [v1.6.13](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.13).
+Актуальный релиз: [v1.6.14](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.14).
+
+## Публичный сайт
+
+При первой установке копируется **случайный** шаблон из 10 вариантов (`site/templates/`).  
+Уже существующий `/srv/tproxy-site` не перезаписывается.
+
+```bash
+sudo tgwebproxyr site list
+sudo tgwebproxyr site set northwind   # или alpine, metro, …
+sudo tgwebproxyr site random
+# или до установки:
+TWPR_SITE_TEMPLATE=foundry sudo bash /tmp/twpr.sh --docker --quick
+```
 
 ## Требования
 

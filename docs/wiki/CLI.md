@@ -25,6 +25,7 @@ tgwebproxyr doctor
 tgwebproxyr metrics            # всего + по пользователям (≥1.6.12)
 tgwebproxyr metrics --raw
 tgwebproxyr certs status|detect
+tgwebproxyr site list|status|set <name|random>|random
 ```
 
 ## Установка

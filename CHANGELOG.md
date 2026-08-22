@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.14 — 2026-08-23
+
+- При установке публичный сайт ставится из **случайного** шаблона (10 штук в `site/templates/`)
+- `tgwebproxyr site list|status|set|random`; env `TWPR_SITE_TEMPLATE`
+- Docker: mount `/srv/tproxy-site` (развёрнутый сайт), а не исходники репо
+
 ## 1.6.13 — 2026-08-23
 
 - Лимиты трафика на пользователя: `secret quota`, бот, Shop API (`quota_bytes` / `enabled` / `reset_usage`)

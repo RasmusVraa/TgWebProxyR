@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Atelier Lane Studio">
+  <rect width="64" height="64" rx="8" fill="#6e3b28"/>
+  <path d="M18 44 V20 h8 v10 h12 V20 h8 v24" fill="none" stroke="#f6f0e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="14" r="3" fill="#a65d3f"/>
+</svg>

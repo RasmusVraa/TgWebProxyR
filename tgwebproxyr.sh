@@ -78,6 +78,7 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr bot …           setup|update|menu|…
   tgwebproxyr api …           setup|token|status  (Shop API)
   tgwebproxyr certs …         status|detect       (TLS / ACME)
+  tgwebproxyr site …          list|status|set|random  (шаблон публичного сайта)
   tgwebproxyr backup …        create|list|restore|auto
   tgwebproxyr docker …        setup|up|down|logs|pull
   tgwebproxyr update              # менеджер с GitHub + стек
@@ -129,6 +130,7 @@ main() {
     bot) TWPR_cmd_bot "$@" ;;
     api) TWPR_cmd_api "$@" ;;
     certs|cert|tls) TWPR_cmd_certs "$@" ;;
+    site|sites|theme|themes) TWPR_cmd_site "$@" ;;
     backup|backups) TWPR_cmd_backup "$@" ;;
     docker) TWPR_cmd_docker "$@" ;;
     uninstall|remove) TWPR_cmd_uninstall "$@" ;;

@@ -257,7 +257,11 @@ TWPR_fetch_engine() {
 }
 
 TWPR_prepare_site() {
-  local src="${TWPR_ROOT}/site"
+  local tpl_root="${TWPR_ROOT}/site/templates"
+  local src="" name="" pick=""
+  local -a names=()
+
+  # уже развёрнут — только подставить hostname
   if [[ -f "${TWPR_SITE_DIR}/index.html" ]]; then
     TWPR_info "Сайт уже есть: ${TWPR_SITE_DIR} (оставляю как есть)"
     if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
@@ -266,18 +270,100 @@ TWPR_prepare_site() {
     fi
     return 0
   fi
-  if [[ ! -f "${src}/index.html" ]]; then
-    TWPR_err "Нет шаблона сайта: ${src}/index.html"
+
+  if [[ -f "${tpl_root}/MANIFEST" ]]; then
+    mapfile -t names < <(grep -E '^[a-z0-9_-]+$' "${tpl_root}/MANIFEST" 2>/dev/null || true)
+  fi
+  if [[ ${#names[@]} -eq 0 ]]; then
+    mapfile -t names < <(find "$tpl_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+  fi
+
+  # явный выбор: TWPR_SITE_TEMPLATE=metro | random
+  pick="${TWPR_SITE_TEMPLATE:-random}"
+  case "$pick" in
+    random|RANDOM|"" )
+      if [[ ${#names[@]} -gt 0 ]]; then
+        name="${names[$((RANDOM % ${#names[@]}))]}"
+      fi
+      ;;
+    *)
+      name="$pick"
+      ;;
+  esac
+
+  if [[ -n "$name" && -f "${tpl_root}/${name}/index.html" ]]; then
+    src="${tpl_root}/${name}"
+  elif [[ -f "${TWPR_ROOT}/site/index.html" ]]; then
+    src="${TWPR_ROOT}/site"
+    name="legacy"
+  else
+    TWPR_err "Нет шаблонов сайта в ${tpl_root}"
     return 1
   fi
+
   mkdir -p "$TWPR_SITE_DIR"
-  cp -a "${src}/." "$TWPR_SITE_DIR/"
+  # не копировать каталог templates внутрь live-сайта
+  if [[ "$src" == "${TWPR_ROOT}/site" ]]; then
+    find "$src" -maxdepth 1 -type f -exec cp -a {} "$TWPR_SITE_DIR/" \;
+  else
+    cp -a "${src}/." "$TWPR_SITE_DIR/"
+  fi
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     find "$TWPR_SITE_DIR" -type f \( -name '*.html' -o -name '*.txt' \) -print0 \
       | xargs -0 sed -i "s/__HOSTNAME__/${TWPR_HOSTNAME}/g" 2>/dev/null || true
   fi
-  TWPR_ok "Стартовый сайт → ${TWPR_SITE_DIR}"
-  TWPR_warn "Потом замените тексты на свои — одинаковые шаблоны легче зондировать"
+  TWPR_SITE_TEMPLATE="$name"
+  # не вызывать полный save_state здесь — только запомнить имя, если state уже есть
+  if [[ -f "${TWPR_STATE_DIR}/settings.env" ]]; then
+    if grep -q '^TWPR_SITE_TEMPLATE=' "${TWPR_STATE_DIR}/settings.env" 2>/dev/null; then
+      sed -i "s/^TWPR_SITE_TEMPLATE=.*/TWPR_SITE_TEMPLATE='${name}'/" "${TWPR_STATE_DIR}/settings.env"
+    else
+      echo "TWPR_SITE_TEMPLATE='${name}'" >>"${TWPR_STATE_DIR}/settings.env"
+    fi
+  fi
+  TWPR_ok "Сайт ← шаблон «${name}» → ${TWPR_SITE_DIR}"
+  TWPR_warn "Замените тексты на свои — одинаковые шаблоны легче зондировать"
+}
+
+TWPR_cmd_site() {
+  local sub="${1:-status}"
+  shift || true
+  TWPR_load_state 2>/dev/null || true
+  local tpl_root="${TWPR_ROOT}/site/templates"
+  case "$sub" in
+    list|ls)
+      echo -e "  ${C_BOLD}Шаблоны сайта${C_RESET}"
+      if [[ -f "${tpl_root}/MANIFEST" ]]; then
+        sed 's/^/  · /' "${tpl_root}/MANIFEST"
+      else
+        find "$tpl_root" -mindepth 1 -maxdepth 1 -type d -printf '  · %f\n' 2>/dev/null | sort
+      fi
+      TWPR_info "текущий: ${TWPR_SITE_TEMPLATE:-—}"
+      ;;
+    status|show)
+      TWPR_info "шаблон  ${TWPR_SITE_TEMPLATE:-—}"
+      TWPR_info "путь    ${TWPR_SITE_DIR}"
+      [[ -f "${TWPR_SITE_DIR}/index.html" ]] && TWPR_ok "index.html есть" || TWPR_warn "сайт ещё не развёрнут"
+      ;;
+    set|install)
+      local name="${1:-}"
+      [[ -n "$name" ]] || { TWPR_err "укажите имя шаблона или random"; return 1; }
+      TWPR_require_root
+      # принудительно переустановить
+      if [[ -d "$TWPR_SITE_DIR" ]]; then
+        rm -rf "${TWPR_SITE_DIR}.bak" 2>/dev/null || true
+        mv "$TWPR_SITE_DIR" "${TWPR_SITE_DIR}.bak" 2>/dev/null || rm -rf "$TWPR_SITE_DIR"
+      fi
+      TWPR_SITE_TEMPLATE="$name"
+      TWPR_prepare_site
+      ;;
+    random)
+      TWPR_cmd_site set random
+      ;;
+    *)
+      echo "  tgwebproxyr site list|status|set <name|random>|random"
+      ;;
+  esac
 }
 
 TWPR_wizard_check_system() {

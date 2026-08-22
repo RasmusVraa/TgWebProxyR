@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Beacon Range Club">
+  <rect width="64" height="64" rx="8" fill="#0f1720"/>
+  <path d="M32 10 v28 M20 28 l12 16 12-16" fill="none" stroke="#3ecfbf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="14" r="3" fill="#3ecfbf"/>
+</svg>

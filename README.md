@@ -6,7 +6,7 @@
 
 Основа — официальный PoC [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server) + MTProxy. Клиент: **Telegram Desktop ≥ 7.1.1**, тип прокси **WEB**.
 
-**Сейчас:** [v1.6.13](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.13) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
+**Сейчас:** [v1.6.14](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.14) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
 
 ---
 
@@ -226,6 +226,7 @@ tgwebproxyr api setup|token|status|logs
 tgwebproxyr bot setup|update|status|restart|logs
 tgwebproxyr backup create|list|restore|auto
 tgwebproxyr certs status|detect
+tgwebproxyr site list|status|set <name|random>|random
 tgwebproxyr docker setup|up|down|pull|logs|status
 tgwebproxyr update
 tgwebproxyr uninstall
@@ -282,8 +283,14 @@ sudo tgwebproxyr backup auto daily     # hourly|daily|monthly|off
 - `profiles.json` / `.env` / `api.env` — права `0600` / `0400`.
 - Не вешайте CDN до первого успешного ACME.
 
-Публичный сайт — стартовый шаблон; замените тексты  
+Публичный сайт — при установке выбирается **случайный шаблон** из 10 вариантов  
+(`site/templates/`). Потом замените тексты на свои  
 ([PUBLIC_SITE.md](https://github.com/telegramdesktop/tproxy-server/blob/master/PUBLIC_SITE.md)).
+
+```bash
+sudo tgwebproxyr site list
+sudo tgwebproxyr site set metro    # или random
+```
 
 ### Уже есть сертификат
 

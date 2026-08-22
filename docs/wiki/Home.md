@@ -3,7 +3,7 @@
 Установщик и CLI для Telegram **WEB**-прокси на базе [`tproxy-server`](https://github.com/telegramdesktop/tproxy-server).
 
 > Скрипт навайбкоден — используйте с осторожностью.  
-> Актуальная версия: **[v1.6.13](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.13)** · [README](https://github.com/RasmusVraa/TgWebProxyR#readme)
+> Актуальная версия: **[v1.6.14](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.14)** · [README](https://github.com/RasmusVraa/TgWebProxyR#readme)
 
 ## Страницы
 
@@ -36,6 +36,7 @@ sudo tgwebproxyr link
 - Docker или Native установка  
 - Несколько пользователей на одном домене (`secret add` / бот / API)  
 - **Лимиты трафика** на пользователя + soft-disable при исчерпании  
+- **10 шаблонов** публичного сайта — случайный при установке (`site list|set|random`)  
 - Трафик по каждому пользователю (бот, `metrics`, API)  
 - MTProxy сам ставит `--nat-info` за Docker/NAT  
 - Подхват уже выпущенного TLS  

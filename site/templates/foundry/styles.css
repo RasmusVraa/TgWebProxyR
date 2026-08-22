@@ -1,0 +1,28 @@
+
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; line-height:1.55; min-height:100%; }
+a { text-decoration-thickness:1px; text-underline-offset:3px; }
+.top { display:flex; justify-content:space-between; align-items:baseline; gap:1rem; max-width:980px; margin:0 auto; padding:1.4rem 1.25rem .5rem; }
+.brand { font-weight:700; text-decoration:none; }
+nav a { margin-left:1rem; font-size:.95rem; color:var(--muted); text-decoration:none; }
+nav a:hover { color:var(--accent); }
+main { max-width:980px; margin:0 auto; padding:1rem 1.25rem 3rem; }
+.narrow { max-width:640px; }
+.hero { padding:2.2rem 0 1.5rem; border-bottom:1px solid var(--line); margin-bottom:1.75rem; }
+.kicker { text-transform:uppercase; letter-spacing:.14em; font-size:.75rem; margin:0 0 .75rem; }
+h1 { font-size:clamp(1.9rem,4vw,2.9rem); line-height:1.15; margin:0 0 1rem; font-weight:700; }
+.lede { font-size:1.12rem; color:var(--muted); max-width:40rem; margin:0; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; }
+.card { padding:1.1rem 1.15rem; }
+.card h2 { font-size:1.05rem; margin:0 0 .5rem; }
+.card p { margin:0; color:var(--muted); font-size:.98rem; }
+footer { max-width:980px; margin:0 auto; padding:0 1.25rem 2.5rem; color:var(--muted); font-size:.9rem; }
+.mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.92em; }
+@media (max-width:640px){ .top{flex-direction:column; align-items:flex-start;} nav a{margin-left:0; margin-right:1rem;} }
+
+:root { --ink:#111111; --muted:#555555; --paper:#f5f5f0; --card:#ffffff; --line:#ccccc4; --accent:#c4a000; --accent2:#111111; --wash:#e8e8e0; }
+html,body{background:repeating-linear-gradient(0deg,transparent,transparent 23px,rgba(0,0,0,.03) 24px),var(--paper);color:var(--ink);font-family:"Courier New",Courier,ui-monospace,monospace;}
+.brand{text-transform:uppercase;letter-spacing:.12em;font-size:.9rem;}
+.kicker{color:#111;background:var(--accent);display:inline-block;padding:.15rem .45rem;font-size:.7rem;}
+.card{background:var(--card);border:2px solid var(--ink);} h1{text-transform:uppercase;letter-spacing:.04em;}
+a{color:var(--ink);text-decoration:underline;} a:hover{background:var(--accent);}
