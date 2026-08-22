@@ -101,7 +101,7 @@ TWPR_dashboard() {
     echo -e "  ${C_BOLD}5${C_RESET})  Сменить / заново установить"
     echo -e "  ${C_BOLD}6${C_RESET})  Ротация secret"
     echo -e "  ${C_BOLD}7${C_RESET})  Добавить ещё один secret"
-    echo -e "  ${C_BOLD}8${C_RESET})  Telegram-бот"
+    echo -e "  ${C_BOLD}8${C_RESET})  Telegram-бот (настройка / обновление)"
     echo -e "  ${C_BOLD}9${C_RESET})  Бэкапы"
     echo -e "  ${C_BOLD}10${C_RESET}) Docker Compose"
     echo -e "  ${C_BOLD}11${C_RESET}) Удалить всё"
@@ -118,7 +118,7 @@ TWPR_dashboard() {
       5) TWPR_cmd_setup; TWPR_pause ;;
       6) TWPR_cmd_secret_rotate; TWPR_pause ;;
       7) TWPR_cmd_secret_add; TWPR_pause ;;
-      8) TWPR_bot_setup; TWPR_pause ;;
+      8) TWPR_bot_menu; TWPR_pause ;;
       9)
         TWPR_backup_list
         echo ""
