@@ -1,14 +1,18 @@
 # Changelog
 
+## 1.1.0 — 2026-08-22
+
+- Пошаговый мастер установки (8 шагов) прямо из one-liner
+- `install.sh` сразу запускает wizard, без отдельных команд
+- Дашборд вместо пустого меню: статус, health, ссылки
+- Исправлено тихое падение `setup` после баннера
+
 ## 1.0.1 — 2026-08-22
 
 - Переименование проекта в **TgWebProxyR**
 - CLI-команда: `tgwebproxyr`
+- PNG-баннер в README
 
 ## 1.0.0 — 2026-08-22
 
 - Первый релиз (ранее WebProxyL)
-- Bootstrap `install.sh` и CLI-менеджер
-- Мастер установки поверх `telegramdesktop/tproxy-server`
-- Стартовый публичный сайт «Northwind Field Notes»
-- Команды: status, link, logs, metrics, update, secret rotate/add, uninstall

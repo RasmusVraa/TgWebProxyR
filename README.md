@@ -89,19 +89,12 @@ wget -qO /tmp/tgwebproxyr-install.sh \
 curl -fsSL https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh | sudo bash
 ```
 
-После загрузки менеджера сразу запускается мастер `tgwebproxyr setup`.
+One-liner сразу открывает **пошаговый мастер** (домен → email → secret → DNS → установка Caddy/MTProxy/relay → ссылки).
 
-Повторный вход в меню:
+Потом управление одной командой:
 
 ```bash
 sudo tgwebproxyr
-```
-
-Пропустить мастер при bootstrap:
-
-```bash
-sudo TWPR_SKIP_SETUP=1 bash /tmp/tgwebproxyr-install.sh
-sudo tgwebproxyr setup
 ```
 
 ---
@@ -148,18 +141,16 @@ sudo tgwebproxyr link
 <a id="cli"></a>
 ## CLI
 
+После установки one-liner сам проводит через 8 шагов. Дальше:
+
 ```text
-tgwebproxyr                 интерактивное меню
-tgwebproxyr setup           мастер установки
-tgwebproxyr status          caddy / mtproxy / tproxy-server / healthz
-tgwebproxyr link            tg:// и https://t.me/webproxy
-tgwebproxyr logs [unit]     journalctl
-tgwebproxyr metrics         http://127.0.0.1:8081/metrics
-tgwebproxyr update          deploy/update-relay.sh
-tgwebproxyr reinstall       повторный официальный install
-tgwebproxyr secret show
+tgwebproxyr                 дашборд (статус + действия)
+tgwebproxyr setup           полный мастер заново
+tgwebproxyr status
+tgwebproxyr link
+tgwebproxyr logs
+tgwebproxyr update
 tgwebproxyr secret rotate
-tgwebproxyr secret add      ещё один профиль на том же hostname
 tgwebproxyr uninstall
 ```
 

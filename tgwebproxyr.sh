@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# TgWebProxyR — interactive menu + CLI
-set -euo pipefail
+# TgWebProxyR — entrypoint: wizard + dashboard
+set -uo pipefail
 
 TWPR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Prefer installed location when invoked via /usr/local/bin
 if [[ -d /opt/tgwebproxyr/lib ]]; then
   TWPR_ROOT="/opt/tgwebproxyr"
 fi
@@ -26,60 +25,72 @@ source "${TWPR_ROOT}/lib/uninstall.sh"
 
 TWPR_usage() {
   cat <<EOF
-${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION} — менеджер Telegram WEB Proxy
+${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
 
-${C_ACCENT}Использование:${C_RESET}
-  tgwebproxyr                 интерактивное меню
-  tgwebproxyr setup           мастер установки
-  tgwebproxyr status          статус сервисов
-  tgwebproxyr link            ссылки tg:// и t.me/webproxy
-  tgwebproxyr logs [unit]     journalctl (по умолчанию tproxy-server)
-  tgwebproxyr metrics         метрики relay
-  tgwebproxyr update          обновить relay (tproxy-server)
-  tgwebproxyr reinstall       повторный официальный install
-  tgwebproxyr secret show     показать secret
-  tgwebproxyr secret rotate   сгенерировать новый secret
-  tgwebproxyr secret add      добавить профиль (мульти-secret)
-  tgwebproxyr uninstall       удалить установку
-  tgwebproxyr help            эта справка
+  tgwebproxyr              дашборд (или мастер, если ещё не установлено)
+  tgwebproxyr setup        полный пошаговый мастер установки
+  tgwebproxyr status       статус сервисов
+  tgwebproxyr link         ссылки для Telegram
+  tgwebproxyr logs         journalctl
+  tgwebproxyr update       обновить relay
+  tgwebproxyr reinstall    переустановка
+  tgwebproxyr secret ...   show | rotate | add
+  tgwebproxyr uninstall    удалить
+  tgwebproxyr help
 
-${C_DIM}Движок: https://github.com/telegramdesktop/tproxy-server
-Клиент: Telegram Desktop 7.1.1+ (тип прокси WEB)${C_RESET}
+Клиент: Telegram Desktop 7.1.1+ → Add proxy → WEB
 EOF
 }
 
-TWPR_menu() {
+TWPR_dashboard() {
   while true; do
     clear 2>/dev/null || true
     TWPR_banner
     TWPR_load_state
-    if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
-      echo -e "  ${C_DIM}host${C_RESET} ${TWPR_HOSTNAME}  ${C_DIM}·${C_RESET}  $(TWPR_service_state tproxy-server)"
-      echo ""
+
+    local st_relay st_mp st_caddy health="—"
+    st_relay="$(TWPR_service_state tproxy-server)"
+    st_mp="$(TWPR_service_state mtproxy)"
+    st_caddy="$(TWPR_service_state caddy)"
+    if curl -fsS --max-time 2 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+      health="${C_GREEN}ready${C_RESET}"
+    elif curl -fsS --max-time 2 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+      health="${C_YELLOW}alive / backend down${C_RESET}"
+    else
+      health="${C_RED}down${C_RESET}"
     fi
-    echo -e "  ${C_BOLD}1${C_RESET}) Установка / мастер"
-    echo -e "  ${C_BOLD}2${C_RESET}) Статус"
-    echo -e "  ${C_BOLD}3${C_RESET}) Ссылки для клиентов"
-    echo -e "  ${C_BOLD}4${C_RESET}) Логи"
-    echo -e "  ${C_BOLD}5${C_RESET}) Обновить relay"
-    echo -e "  ${C_BOLD}6${C_RESET}) Ротация secret"
-    echo -e "  ${C_BOLD}7${C_RESET}) Добавить профиль"
-    echo -e "  ${C_BOLD}8${C_RESET}) Метрики"
-    echo -e "  ${C_BOLD}9${C_RESET}) Удалить"
-    echo -e "  ${C_BOLD}0${C_RESET}) Выход"
+
+    if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
+      echo -e "  host    ${C_BOLD}${TWPR_HOSTNAME}${C_RESET}"
+      echo -e "  relay   ${st_relay}   mtproxy ${st_mp}   caddy ${st_caddy}"
+      echo -e "  health  ${health}"
+    else
+      echo -e "  ${C_YELLOW}Прокси ещё не настроен${C_RESET}"
+    fi
+    echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
     echo ""
-    local choice
-    read -r -p "  Выберите пункт: " choice || true
+    echo -e "  ${C_BOLD}1${C_RESET})  Ссылка для Telegram"
+    echo -e "  ${C_BOLD}2${C_RESET})  Статус сервисов"
+    echo -e "  ${C_BOLD}3${C_RESET})  Логи"
+    echo -e "  ${C_BOLD}4${C_RESET})  Обновить relay"
+    echo -e "  ${C_BOLD}5${C_RESET})  Сменить / заново установить"
+    echo -e "  ${C_BOLD}6${C_RESET})  Ротация secret"
+    echo -e "  ${C_BOLD}7${C_RESET})  Добавить ещё один secret"
+    echo -e "  ${C_BOLD}8${C_RESET})  Удалить всё"
+    echo -e "  ${C_BOLD}0${C_RESET})  Выход"
+    echo ""
+
+    local choice=""
+    read -r -p "  Выберите: " choice || true
     case "$choice" in
-      1) TWPR_cmd_setup; TWPR_pause ;;
+      1) TWPR_cmd_link; TWPR_pause ;;
       2) TWPR_cmd_status; TWPR_pause ;;
-      3) TWPR_cmd_link; TWPR_pause ;;
-      4) TWPR_cmd_logs; TWPR_pause ;;
-      5) TWPR_cmd_update; TWPR_pause ;;
+      3) TWPR_cmd_logs; TWPR_pause ;;
+      4) TWPR_cmd_update; TWPR_pause ;;
+      5) TWPR_cmd_setup; TWPR_pause ;;
       6) TWPR_cmd_secret_rotate; TWPR_pause ;;
       7) TWPR_cmd_secret_add; TWPR_pause ;;
-      8) TWPR_cmd_metrics; TWPR_pause ;;
-      9) TWPR_cmd_uninstall; TWPR_pause ;;
+      8) TWPR_cmd_uninstall; TWPR_pause ;;
       0|q|Q) exit 0 ;;
       *) TWPR_warn "Неизвестный пункт"; sleep 1 ;;
     esac
@@ -89,15 +100,35 @@ TWPR_menu() {
 main() {
   local cmd="${1:-}"
   shift || true
+
   case "$cmd" in
-    ""|menu) TWPR_menu ;;
-    setup|install) TWPR_cmd_setup "$@" ;;
-    status) TWPR_cmd_status "$@" ;;
-    link|links) TWPR_cmd_link "$@" ;;
-    logs) TWPR_cmd_logs "$@" ;;
-    metrics) TWPR_cmd_metrics "$@" ;;
-    update) TWPR_cmd_update "$@" ;;
-    reinstall) TWPR_cmd_reinstall "$@" ;;
+    help|-h|--help)
+      TWPR_usage
+      ;;
+    version|-V|--version)
+      echo "TgWebProxyR ${TWPR_VERSION}"
+      ;;
+    setup|install)
+      TWPR_cmd_setup "$@"
+      ;;
+    status)
+      TWPR_cmd_status "$@"
+      ;;
+    link|links)
+      TWPR_cmd_link "$@"
+      ;;
+    logs)
+      TWPR_cmd_logs "$@"
+      ;;
+    metrics)
+      TWPR_cmd_metrics "$@"
+      ;;
+    update)
+      TWPR_cmd_update "$@"
+      ;;
+    reinstall)
+      TWPR_cmd_reinstall "$@"
+      ;;
     secret)
       case "${1:-}" in
         show) TWPR_cmd_secret_show ;;
@@ -106,9 +137,22 @@ main() {
         *) TWPR_err "secret: show|rotate|add"; exit 2 ;;
       esac
       ;;
-    uninstall|remove) TWPR_cmd_uninstall "$@" ;;
-    help|-h|--help) TWPR_usage ;;
-    version|-V|--version) echo "TgWebProxyR ${TWPR_VERSION}" ;;
+    uninstall|remove)
+      TWPR_cmd_uninstall "$@"
+      ;;
+    ""|menu|dashboard)
+      TWPR_load_state
+      if ! TWPR_is_configured; then
+        TWPR_info "Первый запуск — открываю мастер установки"
+        sleep 1
+        TWPR_cmd_setup
+        echo ""
+        TWPR_ask_yn _go "Открыть меню управления" "Y"
+        [[ "${_go:-}" == "yes" ]] && TWPR_dashboard
+      else
+        TWPR_dashboard
+      fi
+      ;;
     *)
       TWPR_err "Неизвестная команда: $cmd"
       TWPR_usage

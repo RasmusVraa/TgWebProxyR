@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# TgWebProxyR — bootstrap installer
+# TgWebProxyR — one-liner bootstrap → сразу пошаговый мастер
 #
-# One-liner:
 #   wget -qO /tmp/tgwebproxyr-install.sh https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh && sudo bash /tmp/tgwebproxyr-install.sh
-#
-# Or:
 #   curl -fsSL https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh | sudo bash
 set -euo pipefail
 
@@ -24,9 +21,9 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 echo ""
-echo "  TgWebProxyR — установка менеджера"
+echo "  TgWebProxyR — загрузка менеджера"
 echo "  ────────────────────────────────"
-echo "  repo: ${REPO} @ ${BRANCH}"
+echo "  ${REPO} @ ${BRANCH}"
 echo ""
 
 if ! command -v curl >/dev/null 2>&1; then
@@ -41,23 +38,26 @@ tmpdir="$(mktemp -d /tmp/tgwebproxyr-boot.XXXXXX)"
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
-echo "  ↓ скачиваю TgWebProxyR…"
-if curl -fsSL --retry 4 --retry-delay 2 "$ARCHIVE_URL" -o "${tmpdir}/src.tgz" 2>>"$INSTALL_LOG"; then
-  mkdir -p "${tmpdir}/extract"
-  tar -xzf "${tmpdir}/src.tgz" -C "${tmpdir}/extract"
-  src="$(find "${tmpdir}/extract" -maxdepth 1 -type d -name 'TgWebProxyR-*' | head -1)"
-  [[ -n "$src" ]] || { echo "  ✗ архив пуст"; exit 1; }
-else
-  echo "  ✗ не удалось скачать ${ARCHIVE_URL}" >&2
+echo "  >> скачиваю исходники…"
+if ! curl -fsSL --retry 4 --retry-delay 2 "$ARCHIVE_URL" -o "${tmpdir}/src.tgz" 2>>"$INSTALL_LOG"; then
+  echo "  XX не удалось скачать ${ARCHIVE_URL}" >&2
   echo "  лог: ${INSTALL_LOG}" >&2
   exit 1
 fi
 
+mkdir -p "${tmpdir}/extract"
+tar -xzf "${tmpdir}/src.tgz" -C "${tmpdir}/extract"
+src="$(find "${tmpdir}/extract" -maxdepth 1 -type d -name 'TgWebProxyR-*' | head -1)"
+[[ -n "$src" ]] || { echo "  XX архив пуст"; exit 1; }
+
 mkdir -p "$INSTALL_DIR"
-# Fresh tree without wiping host state outside INSTALL_DIR
-find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name engine -exec rm -rf {} +
+find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name engine -exec rm -rf {} + 2>/dev/null || true
 cp -a "${src}/." "${INSTALL_DIR}/"
-rm -f "${INSTALL_DIR}/_ref_install.sh"
+
+# нормализуем переводы строк на случай CRLF
+if command -v sed >/dev/null 2>&1; then
+  find "$INSTALL_DIR" -type f \( -name '*.sh' -o -name 'version' \) -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+fi
 
 chmod +x "${INSTALL_DIR}/tgwebproxyr.sh" "${INSTALL_DIR}/install.sh"
 find "${INSTALL_DIR}/lib" -name '*.sh' -exec chmod +x {} \;
@@ -67,22 +67,19 @@ cat >/usr/local/bin/tgwebproxyr <<'EOF'
 exec /opt/tgwebproxyr/tgwebproxyr.sh "$@"
 EOF
 chmod 0755 /usr/local/bin/tgwebproxyr
+sed -i 's/\r$//' /usr/local/bin/tgwebproxyr 2>/dev/null || true
 
-# Convenient alias for non-root shells
 cat >/etc/profile.d/tgwebproxyr.sh <<'EOF'
 alias tgwebproxyr='sudo tgwebproxyr'
 EOF
 
 VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
 echo ""
-echo "  ✓ TgWebProxyR ${VERSION} установлен в ${INSTALL_DIR}"
-echo "  ✓ команда: tgwebproxyr"
+echo "  OK  менеджер v${VERSION} → ${INSTALL_DIR}"
+echo "  OK  команда: tgwebproxyr"
 echo ""
-echo "  Дальше:"
-echo "    sudo tgwebproxyr setup"
-echo ""
+echo "  Запускаю пошаговый мастер…"
+sleep 1
 
-# Auto-enter setup unless skipped
-if [[ "${TWPR_SKIP_SETUP:-0}" != "1" ]]; then
-  exec /opt/tgwebproxyr/tgwebproxyr.sh setup
-fi
+# сразу полный wizard (Caddy + MTProxy + relay), без отдельных команд
+exec /opt/tgwebproxyr/tgwebproxyr.sh setup

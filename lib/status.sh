@@ -3,14 +3,16 @@
 
 TWPR_cmd_status() {
   TWPR_load_state
-  TWPR_sec "Статус сервисов"
+  echo ""
+  echo -e "  ${C_BOLD}Статус сервисов${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 
   local units=(caddy tproxy-firewall mtproxy tproxy-server)
   local u st
   for u in "${units[@]}"; do
     st="$(TWPR_service_state "$u")"
     case "$st" in
-      active)   TWPR_ok "$u — ${C_GREEN}active${C_RESET}" ;;
+      active)   TWPR_ok "$u — active" ;;
       inactive) TWPR_warn "$u — inactive" ;;
       *)        TWPR_err "$u — не найден" ;;
     esac
@@ -30,7 +32,7 @@ TWPR_cmd_status() {
 
   if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
     echo ""
-    TWPR_info "Hostname: ${C_BOLD}${TWPR_HOSTNAME}${C_RESET}"
+    TWPR_info "Hostname: ${TWPR_HOSTNAME}"
     TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
   fi
 }
@@ -41,9 +43,11 @@ TWPR_cmd_link() {
     TWPR_err "Прокси ещё не настроен. Запустите: tgwebproxyr setup"
     return 1
   fi
-  TWPR_sec "Ссылки для клиентов (Telegram ≥ 7.1.1 Desktop)"
-  echo -e "  ${C_DIM}Hostname${C_RESET}  ${TWPR_HOSTNAME}"
-  echo -e "  ${C_DIM}Secret${C_RESET}    ${TWPR_SECRET}"
+  echo ""
+  echo -e "  ${C_BOLD}Ссылки для Telegram Desktop 7.1.1+${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+  echo "  Hostname  ${TWPR_HOSTNAME}"
+  echo "  Secret    ${TWPR_SECRET}"
   echo ""
   echo -e "  ${C_BOLD}tg://${C_RESET}"
   echo "  $(TWPR_tg_link)"
@@ -51,7 +55,7 @@ TWPR_cmd_link() {
   echo -e "  ${C_BOLD}https://t.me${C_RESET}"
   echo "  $(TWPR_web_link)"
   echo ""
-  TWPR_info "В клиенте: Settings → Advanced → Connection type → Add proxy → WEB"
+  TWPR_info "Settings → Advanced → Connection type → Add proxy → WEB"
   TWPR_info "Hostname без https:// и без порта. Порт всегда 443."
 }
 
