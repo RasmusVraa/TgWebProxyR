@@ -142,6 +142,13 @@ sudo tgwebproxyr docker logs
 
 Стек: `caddy` (80/443 + ACME) → `relay` (tproxy-server) → `mtproxy`.
 
+Образы тянутся с GHCR параллельно (не собираются на VPS):
+
+- `ghcr.io/rasmusvraa/tgwebproxyr-relay`
+- `ghcr.io/rasmusvraa/tgwebproxyr-mtproxy`
+
+Локальная сборка (если нужно): `TWPR_DOCKER_BUILD=1 sudo tgwebproxyr docker build`.
+
 Опциональный бот: `docker compose --profile bot up -d` (нужны `BOT_TOKEN` и `ALLOWED_CHAT_IDS` в `.env`).
 
 ---

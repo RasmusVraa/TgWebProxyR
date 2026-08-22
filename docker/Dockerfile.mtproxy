@@ -1,11 +1,11 @@
-# Official MTProxy backend (pinned commit from tproxy-server deploy)
-FROM debian:bookworm AS build
+# Official MTProxy — pin commit as in telegramdesktop/tproxy-server
+FROM debian:bookworm-slim AS build
 ARG MTPROXY_COMMIT=f36d8af769ffaeac36978d38c2c0f6d1104c2137
 ARG MTPROXY_SHA256=919795c416b870670841a21d1930ad97a24c7b84b9eb8c6f9e3de32f2fdf4655
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl build-essential libssl-dev zlib1g-dev \
   && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL -o /tmp/MTProxy.tar.gz \
+  && curl -fsSL --retry 5 --retry-delay 2 -o /tmp/MTProxy.tar.gz \
        "https://github.com/TelegramMessenger/MTProxy/archive/${MTPROXY_COMMIT}.tar.gz" \
   && echo "${MTPROXY_SHA256}  /tmp/MTProxy.tar.gz" | sha256sum -c - \
   && mkdir -p /build && tar -C /build --strip-components=1 -xzf /tmp/MTProxy.tar.gz \
@@ -16,8 +16,16 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --home /nonexistent --shell /usr/sbin/nologin mtproxy \
-  && mkdir -p /etc/mtproxy /opt/MTProxy/objs/bin \
-  && chown -R mtproxy:mtproxy /etc/mtproxy
+  && mkdir -p /etc/mtproxy /opt/MTProxy/objs/bin /usr/share/mtproxy-defaults \
+  && curl -fsSL --retry 5 --retry-delay 2 -o /usr/share/mtproxy-defaults/proxy-secret \
+       https://core.telegram.org/getProxySecret \
+  && curl -fsSL --retry 5 --retry-delay 2 -o /usr/share/mtproxy-defaults/proxy-multi.conf \
+       https://core.telegram.org/getProxyConfig \
+  && cp /usr/share/mtproxy-defaults/proxy-secret /etc/mtproxy/proxy-secret \
+  && cp /usr/share/mtproxy-defaults/proxy-multi.conf /etc/mtproxy/proxy-multi.conf \
+  && chown -R mtproxy:mtproxy /etc/mtproxy /usr/share/mtproxy-defaults \
+  && chmod 640 /etc/mtproxy/proxy-secret /etc/mtproxy/proxy-multi.conf \
+               /usr/share/mtproxy-defaults/proxy-secret /usr/share/mtproxy-defaults/proxy-multi.conf
 COPY --from=build /build/objs/bin/mtproto-proxy /opt/MTProxy/objs/bin/mtproto-proxy
 COPY docker/entrypoint-mtproxy.sh /usr/local/bin/entrypoint-mtproxy.sh
 RUN chmod 755 /opt/MTProxy/objs/bin/mtproto-proxy /usr/local/bin/entrypoint-mtproxy.sh

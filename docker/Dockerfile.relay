@@ -1,22 +1,26 @@
-# TgWebProxyR — Go relay (tproxy-server)
-FROM golang:1.22-bookworm AS build
-ARG TPROXY_REF=master
-WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && git clone --depth 1 --branch "${TPROXY_REF}" \
-       https://github.com/telegramdesktop/tproxy-server.git . \
-  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
-       -o /out/tproxy-server ./cmd/tproxy-server
+# TgWebProxyR relay — runtime only (бинарник кладёт CI / локальный build-stage)
+# Локальная сборка: docker build -f docker/Dockerfile.relay …
+ARG GO_IMAGE=golang:1.22-alpine
+ARG RUNTIME_IMAGE=alpine:3.20
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/* \
-  && useradd --system --home /nonexistent --shell /usr/sbin/nologin tproxy
-COPY --from=build /out/tproxy-server /usr/local/bin/tproxy-server
-COPY docker/entrypoint-relay.sh /usr/local/bin/entrypoint-relay.sh
-RUN chmod +x /usr/local/bin/entrypoint-relay.sh /usr/local/bin/tproxy-server \
+FROM ${GO_IMAGE} AS build
+ARG TPROXY_REF=master
+RUN apk add --no-cache git ca-certificates \
+  && git clone --depth 1 --branch "${TPROXY_REF}" \
+       https://github.com/telegramdesktop/tproxy-server.git /src
+WORKDIR /src
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
+      -o /out/tproxy-server ./cmd/tproxy-server
+
+FROM ${RUNTIME_IMAGE}
+RUN apk add --no-cache ca-certificates curl \
+  && adduser -D -H -s /sbin/nologin tproxy \
   && mkdir -p /etc/tproxy-server /srv/tproxy-site \
   && chown -R tproxy:tproxy /etc/tproxy-server
+COPY --from=build /out/tproxy-server /usr/local/bin/tproxy-server
+COPY docker/entrypoint-relay.sh /usr/local/bin/entrypoint-relay.sh
+RUN chmod +x /usr/local/bin/entrypoint-relay.sh /usr/local/bin/tproxy-server
 EXPOSE 8080 8081
 ENTRYPOINT ["/usr/local/bin/entrypoint-relay.sh"]

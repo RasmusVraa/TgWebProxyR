@@ -5,21 +5,27 @@ SECRET="${MTPROXY_SECRET:?MTPROXY_SECRET required}"
 WORKERS="${MTPROXY_WORKERS:-1}"
 MAXC="${MTPROXY_MAX_CONNECTIONS:-4096}"
 CFG=/etc/mtproxy
+DEFAULTS=/usr/share/mtproxy-defaults
 
-# strip dd prefix if present — mtproto-proxy -S wants 32 hex
 case "$SECRET" in
   dd????????????????????????????????) SECRET="${SECRET#dd}" ;;
 esac
 
 mkdir -p "$CFG"
 
+# том может перекрыть /etc/mtproxy — копируем запечённые файлы из образа
 if [ ! -s "${CFG}/proxy-secret" ] || [ ! -s "${CFG}/proxy-multi.conf" ]; then
-  echo ">> fetching Telegram proxy secret/config…"
-  curl -fsSL -o "${CFG}/proxy-secret" https://core.telegram.org/getProxySecret
-  curl -fsSL -o "${CFG}/proxy-multi.conf" https://core.telegram.org/getProxyConfig
+  if [ -s "${DEFAULTS}/proxy-secret" ] && [ -s "${DEFAULTS}/proxy-multi.conf" ]; then
+    echo ">> using baked Telegram proxy config"
+    cp -f "${DEFAULTS}/proxy-secret" "${CFG}/proxy-secret"
+    cp -f "${DEFAULTS}/proxy-multi.conf" "${CFG}/proxy-multi.conf"
+  else
+    echo ">> fetching Telegram proxy secret/config…"
+    curl -fsSL --retry 5 --retry-delay 2 -o "${CFG}/proxy-secret" https://core.telegram.org/getProxySecret
+    curl -fsSL --retry 5 --retry-delay 2 -o "${CFG}/proxy-multi.conf" https://core.telegram.org/getProxyConfig
+  fi
 fi
 
-# -H client port, -p stats port; bind all interfaces inside the container network
 exec /opt/MTProxy/objs/bin/mtproto-proxy \
   -u mtproxy \
   -p 8888 \

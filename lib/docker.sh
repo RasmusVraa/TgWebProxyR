@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# TgWebProxyR — Docker Compose helpers
+# TgWebProxyR — Docker Compose helpers (prefetch + GHCR pull)
 
 TWPR_DOCKER_DIR="${TWPR_DOCKER_DIR:-${TWPR_ROOT}/docker}"
+TWPR_IMAGE_TAG="${TWPR_IMAGE_TAG:-latest}"
+TWPR_RELAY_IMAGE="${TWPR_RELAY_IMAGE:-ghcr.io/rasmusvraa/tgwebproxyr-relay}"
+TWPR_MTPROXY_IMAGE="${TWPR_MTPROXY_IMAGE:-ghcr.io/rasmusvraa/tgwebproxyr-mtproxy}"
+TWPR_CADDY_IMAGE="${TWPR_CADDY_IMAGE:-caddy:2.8-alpine}"
 
 TWPR_docker_compose() {
   if ! command -v docker >/dev/null 2>&1; then
@@ -12,7 +16,11 @@ TWPR_docker_compose() {
     TWPR_err "Нужен Docker Compose v2: docker compose …"
     return 1
   fi
-  (cd "$TWPR_DOCKER_DIR" && docker compose --env-file "${TWPR_DOCKER_DIR}/.env" "$@")
+  (
+    cd "$TWPR_DOCKER_DIR"
+    export TWPR_IMAGE_TAG TWPR_RELAY_IMAGE TWPR_MTPROXY_IMAGE TWPR_CADDY_IMAGE
+    docker compose --env-file "${TWPR_DOCKER_DIR}/.env" "$@"
+  )
 }
 
 TWPR_docker_ensure_env() {
@@ -23,10 +31,10 @@ TWPR_docker_ensure_env() {
     # shellcheck disable=SC1091
     source "$envf"
     set +a
-    # поддержка старого .env с HOSTNAME=/SECRET=
     TWPR_HOSTNAME="${TWPR_HOSTNAME:-${HOSTNAME:-}}"
     TWPR_EMAIL="${TWPR_EMAIL:-${ACME_EMAIL:-}}"
     TWPR_SECRET="${TWPR_SECRET:-${SECRET:-}}"
+    TWPR_IMAGE_TAG="${TWPR_IMAGE_TAG:-latest}"
     return 0
   fi
   return 1
@@ -44,37 +52,122 @@ HTTPS_PORT=${TWPR_PORT_HTTPS:-443}
 MTPROXY_WORKERS=${TWPR_MTPROXY_WORKERS:-1}
 MTPROXY_MAX_CONNECTIONS=${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}
 TPROXY_REF=${TWPR_ENGINE_REF:-master}
+TWPR_IMAGE_TAG=${TWPR_IMAGE_TAG:-latest}
+TWPR_RELAY_IMAGE=${TWPR_RELAY_IMAGE}
+TWPR_MTPROXY_IMAGE=${TWPR_MTPROXY_IMAGE}
+TWPR_CADDY_IMAGE=${TWPR_CADDY_IMAGE}
 EOF
   chmod 600 "$envf"
+}
+
+# Параллельный pull — стартует сразу, не ждёт ответов пользователя
+TWPR_docker_prefetch() {
+  command -v docker >/dev/null 2>&1 || return 0
+  local tag="${TWPR_IMAGE_TAG:-latest}"
+  local log="/tmp/tgwebproxyr-docker-pull.log"
+  : >"$log"
+  TWPR_info "Параллельно качаю образы (Caddy + relay + mtproxy)…"
+  (
+    export DOCKER_CLI_HINTS=false
+    pids=()
+    docker pull "${TWPR_CADDY_IMAGE}" >>"$log" 2>&1 & pids+=($!)
+    docker pull "${TWPR_RELAY_IMAGE}:${tag}" >>"$log" 2>&1 & pids+=($!)
+    docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >>"$log" 2>&1 & pids+=($!)
+    # если :latest ещё нет — пробуем версию из version
+    if [[ "$tag" == "latest" ]]; then
+      ver="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || true)"
+      if [[ -n "$ver" ]]; then
+        docker pull "${TWPR_RELAY_IMAGE}:${ver}" >>"$log" 2>&1 & pids+=($!)
+        docker pull "${TWPR_MTPROXY_IMAGE}:${ver}" >>"$log" 2>&1 & pids+=($!)
+      fi
+    fi
+    ec=0
+    for p in "${pids[@]}"; do
+      wait "$p" || ec=1
+    done
+    echo "$ec" >"${log}.ec"
+  ) &
+  TWPR_DOCKER_PREFETCH_PID=$!
+  export TWPR_DOCKER_PREFETCH_PID
+}
+
+TWPR_docker_wait_prefetch() {
+  if [[ -n "${TWPR_DOCKER_PREFETCH_PID:-}" ]]; then
+    TWPR_info "Дожидаюсь окончания скачивания образов…"
+    wait "${TWPR_DOCKER_PREFETCH_PID}" 2>/dev/null || true
+    unset TWPR_DOCKER_PREFETCH_PID
+  fi
+}
+
+TWPR_docker_images_ready() {
+  local tag="${TWPR_IMAGE_TAG:-latest}"
+  docker image inspect "${TWPR_RELAY_IMAGE}:${tag}" >/dev/null 2>&1 \
+    && docker image inspect "${TWPR_MTPROXY_IMAGE}:${tag}" >/dev/null 2>&1 \
+    && docker image inspect "${TWPR_CADDY_IMAGE}" >/dev/null 2>&1
+}
+
+TWPR_docker_ensure_docker() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+  TWPR_info "Ставлю Docker…"
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq ca-certificates curl
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable --now docker 2>/dev/null || true
+  else
+    TWPR_err "Установите Docker: https://docs.docker.com/engine/install/"
+    return 1
+  fi
+  docker compose version >/dev/null 2>&1 || {
+    TWPR_err "docker compose недоступен"
+    return 1
+  }
+}
+
+# pull-first; build только если образов нет
+TWPR_docker_up() {
+  TWPR_docker_wait_prefetch
+  local tag="${TWPR_IMAGE_TAG:-latest}"
+
+  TWPR_info "Тяну свежие образы с GHCR…"
+  set +e
+  TWPR_docker_compose pull --ignore-pull-failures --quiet 2>/dev/null
+  docker pull "${TWPR_CADDY_IMAGE}" >/dev/null 2>&1
+  docker pull "${TWPR_RELAY_IMAGE}:${tag}" >/dev/null 2>&1
+  docker pull "${TWPR_MTPROXY_IMAGE}:${tag}" >/dev/null 2>&1
+  set -e
+
+  if TWPR_docker_images_ready && [[ "${TWPR_DOCKER_BUILD:-0}" != "1" ]]; then
+    TWPR_ok "Образы на месте — поднимаю без сборки"
+    TWPR_docker_compose up -d --no-build --remove-orphans
+    return $?
+  fi
+
+  TWPR_warn "Готовых образов нет или TWPR_DOCKER_BUILD=1 — собираю локально (дольше)"
+  TWPR_info "Сборка relay + mtproxy параллельно (BuildKit)…"
+  export DOCKER_BUILDKIT=1
+  export COMPOSE_DOCKER_CLI_BUILD=1
+  TWPR_docker_compose build --parallel
+  TWPR_docker_compose up -d --remove-orphans
 }
 
 TWPR_docker_install_engine() {
   TWPR_require_root
   TWPR_banner
   echo "  Установка через Docker Compose"
-  echo "  Caddy + tproxy-server + MTProxy в контейнерах"
+  echo "  Готовые образы GHCR → быстрый старт"
   echo ""
 
-  if ! command -v docker >/dev/null 2>&1; then
-    TWPR_info "Ставлю Docker…"
-    if command -v apt-get >/dev/null 2>&1; then
-      export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq
-      apt-get install -y -qq ca-certificates curl
-      curl -fsSL https://get.docker.com | sh
-      systemctl enable --now docker 2>/dev/null || true
-    else
-      TWPR_err "Установите Docker вручную: https://docs.docker.com/engine/install/"
-      return 1
-    fi
-  fi
-  if ! docker compose version >/dev/null 2>&1; then
-    TWPR_err "docker compose недоступен после установки Docker"
-    return 1
-  fi
+  TWPR_docker_ensure_docker || return 1
   TWPR_ok "Docker готов"
 
-  # быстрые вопросы: только домен + email
+  # сразу качаем, пока пользователь отвечает на вопросы
+  TWPR_IMAGE_TAG="${TWPR_IMAGE_TAG:-latest}"
+  TWPR_docker_prefetch
+
   if [[ -z "${TWPR_HOSTNAME:-}" ]]; then
     while true; do
       TWPR_ask TWPR_HOSTNAME "Домен (hostname)"
@@ -106,27 +199,34 @@ TWPR_docker_install_engine() {
   TWPR_docker_write_env
   TWPR_save_state
 
-  TWPR_info "Собираю и поднимаю контейнеры (первая сборка MTProxy — несколько минут)…"
-  TWPR_docker_compose up -d --build
+  TWPR_docker_up || {
+    TWPR_err "Не удалось поднять стек. Лог pull: /tmp/tgwebproxyr-docker-pull.log"
+    TWPR_docker_compose logs --tail=80 || true
+    return 1
+  }
 
   echo ""
   TWPR_ok "Docker-стек запущен"
   TWPR_cmd_link
   echo ""
   TWPR_info "Управление:  tgwebproxyr docker status|logs|down|up"
-  TWPR_info "Или:         cd ${TWPR_DOCKER_DIR} && docker compose …"
 }
 
 TWPR_cmd_docker() {
   local sub="${1:-}"
   shift || true
   case "$sub" in
-    setup|install|up)
-      if [[ "$sub" == "up" ]] && [[ -f "${TWPR_DOCKER_DIR}/.env" ]]; then
-        TWPR_docker_compose up -d "$@"
-      else
+    setup|install)
+      TWPR_load_state
+      TWPR_docker_install_engine
+      ;;
+    up)
+      if [[ ! -f "${TWPR_DOCKER_DIR}/.env" ]]; then
         TWPR_load_state
         TWPR_docker_install_engine
+      else
+        TWPR_docker_ensure_env || true
+        TWPR_docker_up
       fi
       ;;
     down|stop)
@@ -142,8 +242,6 @@ TWPR_cmd_docker() {
       TWPR_docker_compose ps "$@"
       echo ""
       if TWPR_docker_ensure_env; then
-        curl -fsS --max-time 3 http://127.0.0.1:8081/healthz 2>/dev/null \
-          && TWPR_ok "relay healthz OK" || TWPR_warn "relay healthz недоступен с хоста (нормально, если порт не проброшен)"
         TWPR_cmd_link 2>/dev/null || true
       fi
       ;;
@@ -152,22 +250,31 @@ TWPR_cmd_docker() {
       TWPR_docker_ensure_env || true
       TWPR_cmd_link
       ;;
-    pull|build)
-      TWPR_docker_compose build --pull "$@"
+    pull)
+      TWPR_docker_prefetch
+      TWPR_docker_wait_prefetch
+      TWPR_docker_compose pull "$@"
+      ;;
+    build)
+      export DOCKER_BUILDKIT=1 TWPR_DOCKER_BUILD=1
+      TWPR_docker_compose build --parallel "$@"
       ;;
     *)
       cat <<EOF
 Использование: tgwebproxyr docker <команда>
 
-  setup     установить Docker (если нужно) + поднять стек (2 вопроса)
-  up        docker compose up -d
-  down      остановить стек
+  setup     Docker + параллельный pull GHCR + подъём стека
+  up        pull (если нужно) и up -d
+  down      остановить
   restart   перезапуск
-  status    статус контейнеров
+  status    статус
   logs      логи
-  link      ссылки для Telegram
-  build     пересобрать образы
+  link      ссылки
+  pull      обновить образы
+  build     локальная сборка (медленно)
 
+Образы: ${TWPR_RELAY_IMAGE}:${TWPR_IMAGE_TAG}
+        ${TWPR_MTPROXY_IMAGE}:${TWPR_IMAGE_TAG}
 Каталог: ${TWPR_DOCKER_DIR}
 EOF
       ;;

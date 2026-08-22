@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1 — 2026-08-22
+
+- Docker: готовые образы GHCR вместо сборки на VPS
+- Параллельный prefetch образов ещё во время вопросов мастера
+- Telegram proxy-secret/config запечены в образ mtproxy
+- CI: `.github/workflows/docker.yml` публикует `tgwebproxyr-relay` / `tgwebproxyr-mtproxy`
+
 ## 1.4.0 — 2026-08-22
 
 - Упрощённый установщик: выбор режима «быстро / Docker / расширенно»

@@ -118,6 +118,31 @@ echo "  OK  менеджер v${VERSION} → ${INSTALL_DIR}"
 echo "  OK  команда: tgwebproxyr"
 echo ""
 
+# Docker-режим: сразу ставим Docker и параллельно тянем образы, пока идёт мастер
+if [[ "${TWPR_SETUP_MODE:-}" == "docker" ]]; then
+  echo "  >> готовлю Docker и качаю образы в фоне…"
+  (
+    export DEBIAN_FRONTEND=noninteractive
+    if ! command -v docker >/dev/null 2>&1; then
+      apt-get update -qq >>"$INSTALL_LOG" 2>&1 || true
+      apt-get install -y -qq ca-certificates curl >>"$INSTALL_LOG" 2>&1 || true
+      curl -fsSL https://get.docker.com | sh >>"$INSTALL_LOG" 2>&1 || true
+      systemctl enable --now docker >>"$INSTALL_LOG" 2>&1 || true
+    fi
+    if command -v docker >/dev/null 2>&1; then
+      export DOCKER_CLI_HINTS=false
+      tag=latest
+      docker pull caddy:2.8-alpine >>"$INSTALL_LOG" 2>&1 &
+      docker pull "ghcr.io/rasmusvraa/tgwebproxyr-relay:${tag}" >>"$INSTALL_LOG" 2>&1 &
+      docker pull "ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:${tag}" >>"$INSTALL_LOG" 2>&1 &
+      docker pull "ghcr.io/rasmusvraa/tgwebproxyr-relay:${VERSION}" >>"$INSTALL_LOG" 2>&1 &
+      docker pull "ghcr.io/rasmusvraa/tgwebproxyr-mtproxy:${VERSION}" >>"$INSTALL_LOG" 2>&1 &
+      wait || true
+    fi
+  ) &
+  echo $! >/tmp/tgwebproxyr-early-pull.pid
+fi
+
 # полностью без TTY, но есть env — запускаем non-interactive
 if [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; then
   if [[ -n "${TWPR_HOSTNAME:-}" && -n "${TWPR_EMAIL:-}" ]]; then
