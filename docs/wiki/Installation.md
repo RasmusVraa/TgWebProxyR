@@ -79,4 +79,26 @@ sudo tgwebproxyr bot update
 - Root
 - Для Docker-режима: Docker Engine + Compose plugin
 
-См. также: [[Docker-vs-Native]], [[Users]], [[Troubleshooting]].
+## Уже есть сертификат (Let's Encrypt и др.)
+
+При setup, если найден fullchain+privkey для домена, мастер спросит:  
+**«Подхватить его (не выпускать новый ACME)»** — по умолчанию да.
+
+Ищет:
+
+| Путь |
+| --- |
+| `/etc/letsencrypt/live/<hostname>/fullchain.pem` + `privkey.pem` |
+| `/etc/ssl/tgwebproxyr/<hostname>/…` |
+| `/etc/tgwebproxyr/certs/fullchain.pem` + `privkey.pem` |
+| env `TWPR_TLS_CERT` + `TWPR_TLS_KEY` |
+
+```bash
+sudo tgwebproxyr certs status
+sudo tgwebproxyr certs detect
+```
+
+Режим пишется в `settings.env` (`TWPR_TLS_MODE=file|acme`).  
+`/etc/letsencrypt` uninstall **не трогает**. Caddy-хранилище можно сохранить при удалении.
+
+См. также: [[Docker-vs-Native]], [[Troubleshooting]].

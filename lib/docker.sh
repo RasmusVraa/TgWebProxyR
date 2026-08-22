@@ -16,10 +16,14 @@ TWPR_docker_compose() {
     TWPR_err "Нужен Docker Compose v2: docker compose …"
     return 1
   fi
+  local -a comp_args=(--env-file "${TWPR_DOCKER_DIR}/.env" -f docker-compose.yml)
+  if [[ -f "${TWPR_DOCKER_DIR}/docker-compose.tls.yml" ]]; then
+    comp_args+=(-f docker-compose.tls.yml)
+  fi
   (
     cd "$TWPR_DOCKER_DIR"
     export TWPR_IMAGE_TAG TWPR_RELAY_IMAGE TWPR_MTPROXY_IMAGE TWPR_CADDY_IMAGE
-    docker compose --env-file "${TWPR_DOCKER_DIR}/.env" "$@"
+    docker compose "${comp_args[@]}" "$@"
   )
 }
 
@@ -360,12 +364,19 @@ TWPR_docker_install_engine() {
       TWPR_warn "Пример: proxy.example.com"
     done
   fi
-  if [[ -z "${TWPR_EMAIL:-}" ]]; then
-    while true; do
-      TWPR_ask TWPR_EMAIL "Email для Let's Encrypt"
-      TWPR_validate_email "$TWPR_EMAIL" && break
-      TWPR_warn "Некорректный email"
-    done
+
+  TWPR_certs_probe_and_choose
+
+  if [[ "${TWPR_TLS_MODE:-acme}" != "file" ]]; then
+    if [[ -z "${TWPR_EMAIL:-}" ]]; then
+      while true; do
+        TWPR_ask TWPR_EMAIL "Email для Let's Encrypt"
+        TWPR_validate_email "$TWPR_EMAIL" && break
+        TWPR_warn "Некорректный email"
+      done
+    fi
+  else
+    TWPR_EMAIL="${TWPR_EMAIL:-admin@$(TWPR_certs_normalize_host "$TWPR_HOSTNAME")}"
   fi
   if [[ -z "${TWPR_SECRET:-}" ]]; then
     TWPR_SECRET="$(TWPR_gen_secret)"
@@ -380,13 +391,14 @@ TWPR_docker_install_engine() {
   TWPR_INSTALLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   TWPR_prepare_site
+  TWPR_certs_prepare_docker
   TWPR_docker_write_env
   TWPR_save_state
   # файл нужен до compose up (bind-mount; иначе Docker создаст каталог)
   TWPR_ensure_default_profile 2>/dev/null || true
 
   TWPR_info "Собираю и поднимаю контейнеры…"
-  # сбросить старые контейнеры с другой схемой сети
+  # не -v: сохраняем caddy_data (уже выпущенные ACME-серты Caddy)
   TWPR_docker_compose down --remove-orphans 2>/dev/null || true
   TWPR_docker_up || {
     TWPR_err "Не удалось поднять стек. Лог pull: /tmp/tgwebproxyr-docker-pull.log"

@@ -267,6 +267,22 @@ sudo tgwebproxyr backup auto daily     # hourly|daily|monthly|off
 Публичный сайт — стартовый шаблон; замените тексты  
 ([PUBLIC_SITE.md](https://github.com/telegramdesktop/tproxy-server/blob/master/PUBLIC_SITE.md)).
 
+### Уже есть сертификат
+
+При установке, если найдены файлы для вашего домена, мастер предложит **подхватить их** (без нового ACME):
+
+- `/etc/letsencrypt/live/<домен>/fullchain.pem` + `privkey.pem`
+- `/etc/ssl/tgwebproxyr/<домен>/…`
+- `/etc/tgwebproxyr/certs/…`
+- или `TWPR_TLS_CERT` / `TWPR_TLS_KEY`
+
+```bash
+sudo tgwebproxyr certs status
+sudo tgwebproxyr certs detect   # найти и применить
+```
+
+Хранилище Caddy (`caddy_data` / `/var/lib/caddy`) при переустановке не сбрасывается, если не удалять volumes.
+
 ---
 
 ## Обновление

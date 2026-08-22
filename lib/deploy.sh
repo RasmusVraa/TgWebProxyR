@@ -322,10 +322,16 @@ TWPR_wizard_ask_domain() {
 }
 
 TWPR_wizard_ask_email() {
-  TWPR_step 3 "$TWPR_TOTAL_STEPS" "Email для Let's Encrypt"
+  TWPR_step 3 "$TWPR_TOTAL_STEPS" "TLS / Let's Encrypt"
+  TWPR_certs_probe_and_choose
+  if [[ "${TWPR_TLS_MODE:-acme}" == "file" ]]; then
+    TWPR_EMAIL="${TWPR_EMAIL:-admin@$(TWPR_certs_normalize_host "$TWPR_HOSTNAME")}"
+    TWPR_ok "Используем существующий сертификат — ACME не нужен"
+    return 0
+  fi
   local email=""
   while true; do
-    TWPR_ask email "Email" "${TWPR_EMAIL:-}"
+    TWPR_ask email "Email для Let's Encrypt" "${TWPR_EMAIL:-}"
     if TWPR_validate_email "$email"; then
       TWPR_EMAIL="$email"
       TWPR_ok "Email: ${TWPR_EMAIL}"
@@ -472,6 +478,11 @@ TWPR_wizard_deploy() {
   else
     TWPR_ok "Стандартные порты — патч не нужен"
   fi
+  # подхватить существующий TLS или оставить ACME в Caddyfile
+  if declare -F TWPR_certs_apply_native >/dev/null 2>&1; then
+    TWPR_certs_apply_native
+  fi
+  TWPR_save_state
 }
 
 TWPR_wizard_done() {
@@ -490,7 +501,7 @@ TWPR_wizard_done() {
 }
 
 TWPR_wizard_quick_domain_email() {
-  TWPR_step 2 "$TWPR_TOTAL_STEPS" "Домен и email"
+  TWPR_step 2 "$TWPR_TOTAL_STEPS" "Домен и TLS"
   echo "  Перед запуском:"
   echo "    • DNS A: ваш-домен → IP этого VPS (без CDN)"
   echo "    • открыты TCP 80 и 443"
@@ -507,7 +518,12 @@ TWPR_wizard_quick_domain_email() {
     TWPR_ok "Домен: ${TWPR_HOSTNAME}"
   fi
 
-  if [[ -z "${TWPR_EMAIL:-}" ]]; then
+  TWPR_certs_probe_and_choose
+
+  if [[ "${TWPR_TLS_MODE:-acme}" == "file" ]]; then
+    TWPR_EMAIL="${TWPR_EMAIL:-admin@$(TWPR_certs_normalize_host "$TWPR_HOSTNAME")}"
+    TWPR_ok "Email для ACME не нужен (используем готовый сертификат)"
+  elif [[ -z "${TWPR_EMAIL:-}" ]]; then
     while true; do
       TWPR_ask TWPR_EMAIL "Email для Let's Encrypt"
       TWPR_validate_email "$TWPR_EMAIL" && break
@@ -663,12 +679,19 @@ TWPR_cmd_update() {
     TWPR_IMAGE_TAG="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo latest)"
     TWPR_docker_ensure_env 2>/dev/null || true
     TWPR_docker_write_env 2>/dev/null || true
+    # восстановить Caddyfile / tls override из settings
+    if declare -F TWPR_certs_prepare_docker >/dev/null 2>&1; then
+      TWPR_certs_prepare_docker
+    fi
     TWPR_docker_pull_images || true
     TWPR_docker_up
   else
     TWPR_fetch_engine
     TWPR_info "Пересобираю / обновляю native стек…"
     TWPR_run_official_install || true
+    if declare -F TWPR_certs_apply_native >/dev/null 2>&1; then
+      TWPR_certs_apply_native
+    fi
   fi
   TWPR_cmd_status
 }

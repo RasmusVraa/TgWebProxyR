@@ -174,6 +174,12 @@ EOF
   TWPR_ok "nftables: drop внешний доступ к ${mtproxy}/8888"
 
   systemctl daemon-reload 2>/dev/null || true
+  # пересобрать Caddyfile с учётом TLS mode (не затирать file→acme)
+  if declare -F TWPR_write_caddyfile >/dev/null 2>&1; then
+    if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
+      TWPR_write_caddyfile /etc/caddy/Caddyfile
+    fi
+  fi
   systemctl restart mtproxy tproxy-server caddy 2>/dev/null || true
 }
 

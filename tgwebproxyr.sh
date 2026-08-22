@@ -21,6 +21,8 @@ source "${TWPR_ROOT}/lib/deploy.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/secrets.sh"
 # shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/certs.sh"
+# shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/uninstall.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/bot.sh"
@@ -69,6 +71,7 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   ${C_BOLD}Прочее${C_RESET}
   tgwebproxyr bot …           setup|update|menu|…
   tgwebproxyr api …           setup|token|status  (Shop API)
+  tgwebproxyr certs …         status|detect       (TLS / ACME)
   tgwebproxyr backup …        create|list|restore|auto
   tgwebproxyr docker …        setup|up|down|logs|pull
   tgwebproxyr update
@@ -113,6 +116,7 @@ main() {
     metrics|traffic) TWPR_cmd_metrics "$@" ;;
     bot) TWPR_cmd_bot "$@" ;;
     api) TWPR_cmd_api "$@" ;;
+    certs|cert|tls) TWPR_cmd_certs "$@" ;;
     backup|backups) TWPR_cmd_backup "$@" ;;
     docker) TWPR_cmd_docker "$@" ;;
     uninstall|remove) TWPR_cmd_uninstall "$@" ;;

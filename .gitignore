@@ -1,4 +1,5 @@
 docker/.env
+docker/docker-compose.tls.yml
 *.log
 *.tmp
 .DS_Store

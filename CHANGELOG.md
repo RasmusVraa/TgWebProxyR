@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.8 — 2026-08-22
+
+- TLS: если на сервере уже есть сертификат (Let's Encrypt / файлы) — подхватывается, новый ACME не выпускается
+- `tgwebproxyr certs status|detect`
+- Uninstall по умолчанию предлагает сохранить TLS (Caddy data / docker volume)
+
 ## 1.6.7 — 2026-08-22
 
 - Фикс: новые пользователи — MTProxy получает **все** secrets через несколько `-S` (не только default)
