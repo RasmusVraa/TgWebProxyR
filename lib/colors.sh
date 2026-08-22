@@ -34,21 +34,45 @@ TWPR_step() {
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 }
 
+# curl|bash closes stdin — always read prompts from the real TTY
+TWPR_stdin() {
+  if [[ -r /dev/tty ]]; then
+    echo /dev/tty
+  else
+    echo /dev/stdin
+  fi
+}
+
 TWPR_ask() {
   # Usage: TWPR_ask VAR "prompt" ["default"]
-  # Loops until non-empty (unless default given and user hits Enter).
-  local __var="$1" __prompt="$2" __default="${3-}" __reply=""
+  local __var="$1" __prompt="$2" __default="${3-}" __reply="" __in __tries=0
+  __in="$(TWPR_stdin)"
   while true; do
+    __tries=$((__tries + 1))
     if [[ -n "$__default" ]]; then
-      read -r -p "  ${__prompt} [${__default}]: " __reply || true
-      __reply="${__reply:-$__default}"
+      if ! read -r -p "  ${__prompt} [${__default}]: " __reply <"$__in"; then
+        __reply="$__default"
+      else
+        __reply="${__reply:-$__default}"
+      fi
     else
-      read -r -p "  ${__prompt}: " __reply || true
+      if ! read -r -p "  ${__prompt}: " __reply <"$__in"; then
+        TWPR_err "Нет ввода с терминала (EOF)."
+        TWPR_err "Не используйте: curl … | bash"
+        TWPR_err "Запускайте: wget -qO /tmp/i.sh URL && sudo bash /tmp/i.sh"
+        exit 1
+      fi
     fi
-    __reply="$(echo "$__reply" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    # trim spaces without forking sed
+    __reply="${__reply#"${__reply%%[![:space:]]*}"}"
+    __reply="${__reply%"${__reply##*[![:space:]]}"}"
     if [[ -n "$__reply" ]]; then
       printf -v "$__var" '%s' "$__reply"
       return 0
+    fi
+    if [[ "$__tries" -ge 5 ]]; then
+      TWPR_err "Слишком много пустых ответов — выход"
+      exit 1
     fi
     TWPR_warn "Пустое значение — введите ещё раз"
   done
@@ -56,11 +80,14 @@ TWPR_ask() {
 
 TWPR_ask_yn() {
   # Usage: TWPR_ask_yn VAR "prompt" ["Y"|"n"]
-  local __var="$1" __prompt="$2" __default="${3:-Y}" __reply=""
-  local __hint="y/n"
+  local __var="$1" __prompt="$2" __default="${3:-Y}" __reply="" __in __hint
+  __in="$(TWPR_stdin)"
   [[ "$__default" =~ ^[Yy]$ ]] && __hint="Y/n" || __hint="y/N"
-  read -r -p "  ${__prompt} [${__hint}]: " __reply || true
-  __reply="${__reply:-$__default}"
+  if ! read -r -p "  ${__prompt} [${__hint}]: " __reply <"$__in"; then
+    __reply="$__default"
+  else
+    __reply="${__reply:-$__default}"
+  fi
   if [[ "$__reply" =~ ^[Yy]$ ]]; then
     printf -v "$__var" '%s' "yes"
   else
@@ -70,5 +97,7 @@ TWPR_ask_yn() {
 
 TWPR_pause() {
   echo ""
-  read -r -p "  ${C_DIM}Enter — продолжить${C_RESET} " _ || true
+  local __in
+  __in="$(TWPR_stdin)"
+  read -r -p "  ${C_DIM}Enter — продолжить${C_RESET} " _ <"$__in" || true
 }

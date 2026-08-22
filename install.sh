@@ -73,11 +73,15 @@ cat >/etc/profile.d/tgwebproxyr.sh <<'EOF'
 alias tgwebproxyr='sudo tgwebproxyr'
 EOF
 
-VERSION="$(tr -d '[:space:]' </opt/tgwebproxyr/version 2>/dev/null || echo '?')"
-echo ""
+# Convenient note in bootstrap about not piping
 echo "  OK  менеджер v${VERSION} → ${INSTALL_DIR}"
 echo "  OK  команда: tgwebproxyr"
 echo ""
+if [[ ! -t 0 ]] && [[ ! -r /dev/tty ]]; then
+  echo "  XX Нет TTY для вопросов мастера."
+  echo "     Запустите: sudo tgwebproxyr setup"
+  exit 1
+fi
 echo "  Запускаю пошаговый мастер…"
 sleep 1
 
