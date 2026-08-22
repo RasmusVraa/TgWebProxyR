@@ -24,8 +24,10 @@ curl -fsS http://127.0.0.1:8081/readyz
 curl -fsS http://127.0.0.1:8081/metrics | head
 ```
 
-Docker: admin проброшен на `127.0.0.1:8081`.  
-В боте «Метрики недоступны» = тот же `:8081` не отвечает.
+Docker (≥1.6.11): admin на loopback внутри netns, с хоста — через **admin-proxy** (socat) на `127.0.0.1:8081`.  
+В боте «Метрики недоступны» = тот же `:8081` не отвечает → `tgwebproxyr update`.
+
+Нет строк `profile=` в `/metrics` → нужен relay **≥1.6.12** (per-user traffic).
 
 ## Клиент «Connecting…» / web transport
 
@@ -55,9 +57,19 @@ sudo tgwebproxyr secret apply
 
 Подробнее: [[Users]].
 
+## Нет трафика по пользователям
+
+```bash
+curl -fsS http://127.0.0.1:8081/metrics | grep 'profile='
+sudo tgwebproxyr update
+sudo tgwebproxyr secret apply
+```
+
+Без патченого relay (≥1.6.12) видны только глобальные счётчики.
+
 ## MTProxy не ходит в Telegram (Updating… / Docker)
 
-За NAT или в Docker MTProxy нужен `--nat-info local:public`. С **v1.6.12** entrypoint/wrapper выставляют его сами; в логах:
+За NAT или в Docker MTProxy нужен `--nat-info local:public`. С **v1.6.12** entrypoint/wrapper выставляют его сами ([issue #2](https://github.com/RasmusVraa/TgWebProxyR/issues/2)); в логах:
 
 ```bash
 sudo tgwebproxyr docker logs mtproxy 30

@@ -28,9 +28,10 @@ sudo tgwebproxyr secret rotate bob
 sudo tgwebproxyr secret remove bob
 sudo tgwebproxyr secret apply
 sudo tgwebproxyr metrics
-# всего + по каждому пользователю (нужен relay ≥1.6.12)
+# всего + по каждому пользователю (↑ / ↓ / сессии)
 ```
 
+Нужен relay **≥1.6.12** (в `/metrics` строки `tproxy_*{profile="…"}`).  
 Имя: латиница, цифры, `._-` (без пробелов).
 
 ## Бот
@@ -48,8 +49,10 @@ sudo tgwebproxyr metrics
 # число -S должно совпадать с числом профилей
 sudo tgwebproxyr docker logs mtproxy 40
 # >> mtproxy -S count: 2
+# >> mtproxy --nat-info …   (≥1.6.12)
 
 curl -fsS http://127.0.0.1:8081/healthz
+curl -fsS http://127.0.0.1:8081/metrics | grep 'profile='
 sudo tgwebproxyr secret list
 ```
 

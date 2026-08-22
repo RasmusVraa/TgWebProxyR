@@ -35,10 +35,13 @@ tgwebproxyr bot menu
 | Пользователи | список, карточка, ➕ с именем, rename, delete |
 | Ссылки | tg:// и https://t.me/webproxy по страницам |
 | Логи | хвост journalctl / compose |
-| Трафик | всего + **по каждому пользователю** (↑/↓/сессии) из `:8081/metrics` |
+| Трафик | всего + **по каждому пользователю** (↑/↓/сессии) из `:8081/metrics` (≥1.6.12) |
 | Бэкапы | создать, авто (hourly/daily/monthly), restore |
 
 Команды: `/menu` `/status` `/proxy` `/users` `/links` `/logs` `/traffic` `/backups`.
+
+Если «Трафик» пустой при живом health — обновите до ≥1.6.11 (admin-proxy).  
+Если нет разбивки по пользователям — relay ≥1.6.12 и `tgwebproxyr update` + `secret apply`.
 
 ## Безопасность
 

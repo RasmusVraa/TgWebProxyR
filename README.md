@@ -6,7 +6,7 @@
 
 Основа — официальный PoC [`telegramdesktop/tproxy-server`](https://github.com/telegramdesktop/tproxy-server) + MTProxy. Клиент: **Telegram Desktop ≥ 7.1.1**, тип прокси **WEB**.
 
-**Сейчас:** [v1.6.7](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.7) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
+**Сейчас:** [v1.6.12](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.12) · [Wiki](https://github.com/RasmusVraa/TgWebProxyR/wiki) · зеркало [`docs/wiki/`](docs/wiki/)
 
 ---
 
@@ -151,7 +151,7 @@ sudo tgwebproxyr bot setup
 1. Token у [@BotFather](https://t.me/BotFather).  
 2. Откройте бота → `/start` — admin id подставится сам.  
 
-В боте: статус, прокси start/stop, пользователи (с именами), ссылки, логи, трафик, бэкапы.
+В боте: статус, прокси start/stop, пользователи (с именами), ссылки, логи, трафик **по пользователям**, бэкапы.
 
 ```bash
 sudo tgwebproxyr bot update    # обновить код бота
@@ -205,10 +205,11 @@ tgwebproxyr logs [svc] [n]
 tgwebproxyr doctor
 
 tgwebproxyr secret list|show|link|rotate|add|rename|remove|apply
-tgwebproxyr metrics [--raw]
+tgwebproxyr metrics [--raw]          # всего + по пользователям
 tgwebproxyr api setup|token|status|logs
 tgwebproxyr bot setup|update|status|restart|logs
 tgwebproxyr backup create|list|restore|auto
+tgwebproxyr certs status|detect
 tgwebproxyr docker setup|up|down|pull|logs|status
 tgwebproxyr update
 tgwebproxyr uninstall
@@ -301,11 +302,13 @@ wget -qO /tmp/twpr.sh \
 
 ```bash
 sudo wget -qO /tmp/twpr.tgz \
-  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.9.tar.gz
+  https://github.com/RasmusVraa/TgWebProxyR/archive/refs/tags/v1.6.12.tar.gz
 sudo tar -xzf /tmp/twpr.tgz -C /opt/tgwebproxyr --strip-components=1
 sudo tgwebproxyr update --stack-only
 sudo tgwebproxyr bot update
 ```
+
+После обновления Docker до **1.6.12**: `sudo tgwebproxyr secret apply` — новый relay (трафик по пользователям) и mtproxy с `--nat-info`.
 
 Удаление: `sudo tgwebproxyr uninstall`.
 

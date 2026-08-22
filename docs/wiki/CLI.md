@@ -22,8 +22,9 @@ tgwebproxyr link
 tgwebproxyr logs              # compose или journalctl
 tgwebproxyr logs relay 200
 tgwebproxyr doctor
-tgwebproxyr metrics
+tgwebproxyr metrics            # всего + по пользователям (≥1.6.12)
 tgwebproxyr metrics --raw
+tgwebproxyr certs status|detect
 ```
 
 ## Установка

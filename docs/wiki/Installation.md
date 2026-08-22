@@ -72,7 +72,9 @@ wget -qO /tmp/twpr.sh \
   && sudo bash /tmp/twpr.sh --update-only
 ```
 
-Или: `sudo tgwebproxyr update`.
+После обновления до **1.6.12** (Docker): `sudo tgwebproxyr secret apply` — подтянуть новый relay и mtproxy (`--nat-info`, трафик по пользователям).
+
+Актуальный релиз: [v1.6.12](https://github.com/RasmusVraa/TgWebProxyR/releases/tag/v1.6.12).
 
 ## Требования
 

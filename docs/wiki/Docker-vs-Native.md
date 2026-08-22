@@ -29,9 +29,13 @@ sudo tgwebproxyr setup --native   # или --docker
 
 ## Почему Docker делит network namespace
 
-Upstream `tproxy-server` требует **numeric loopback** и для listen, и для backend.  
+Upstream `tproxy-server` требует **numeric loopback** и для listen, и для backend / admin.  
 Relay и caddy: `network_mode: service:mtproxy` — общий `127.0.0.1`.  
-Admin metrics с хоста: `127.0.0.1:8081` → контейнер.
+
+Admin relay слушает только `127.0.0.1:8081` внутри netns. С хоста метрики идут через **admin-proxy** (socat):  
+`host 127.0.0.1:8081` → `18081` → `127.0.0.1:8081` в контейнере (≥1.6.11).
+
+MTProxy за Docker обычно нужен `--nat-info` — с **v1.6.12** entrypoint ставит его сам (см. [[Troubleshooting]]).
 
 ## Compose volumes (важно)
 
