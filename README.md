@@ -78,7 +78,7 @@ https://t.me/webproxy?server=proxy.example.com&secret=<32hex>
 
 ## Установка
 
-На чистом **Ubuntu 22.04+ / Debian 12+** (x86_64):
+Только **Docker** (Ubuntu/Debian x86_64):
 
 ```bash
 wget -qO /tmp/twpr.sh \
@@ -86,37 +86,25 @@ wget -qO /tmp/twpr.sh \
   && sudo bash /tmp/twpr.sh
 ```
 
-Мастер спросит режим:
+Мастер спросит домен и email. Secret сгенерируется сам.
 
-1. **Быстро** (рекомендуется) — только домен и email, остальное само
-2. **Docker Compose** — Caddy + relay + MTProxy в контейнерах
-3. **Расширенно** — порты, workers, свой secret
-
-Сразу быстрый режим:
-
-```bash
-sudo bash /tmp/twpr.sh --quick
-```
-
-Сразу Docker:
-
-```bash
-sudo bash /tmp/twpr.sh --docker
-```
-
-Без вопросов (CI / скрипты):
+Без вопросов:
 
 ```bash
 sudo TWPR_HOSTNAME=proxy.example.com \
      TWPR_EMAIL=you@example.com \
-     TWPR_YES=1 bash /tmp/twpr.sh --quick
+     TWPR_YES=1 bash /tmp/twpr.sh
 ```
 
-Потом:
+Потом: `sudo tgwebproxyr`
+
+### Telegram-бот
 
 ```bash
-sudo tgwebproxyr
+sudo tgwebproxyr bot setup
 ```
+
+Вводите **только token** → откройте бота в Telegram → `/start` — admin id подхватится сам (как в ProxyL).
 
 ---
 
@@ -124,32 +112,13 @@ sudo tgwebproxyr
 
 ## Docker Compose
 
-Если уже клонировали репозиторий:
+Уже входит в установку выше. Вручную:
 
 ```bash
-cd docker
-cp .env.example .env   # TWPR_HOSTNAME, TWPR_EMAIL, TWPR_SECRET
+cd /opt/tgwebproxyr/docker
+cp .env.example .env
 docker compose up -d --build
 ```
-
-Или через менеджер на VPS:
-
-```bash
-sudo tgwebproxyr docker setup
-sudo tgwebproxyr docker status
-sudo tgwebproxyr docker logs
-```
-
-Стек: `caddy` (80/443 + ACME) → `relay` (tproxy-server) → `mtproxy`.
-
-Образы тянутся с GHCR параллельно (не собираются на VPS):
-
-- `ghcr.io/rasmusvraa/tgwebproxyr-relay`
-- `ghcr.io/rasmusvraa/tgwebproxyr-mtproxy`
-
-Локальная сборка (если нужно): `TWPR_DOCKER_BUILD=1 sudo tgwebproxyr docker build`.
-
-Опциональный бот: `docker compose --profile bot up -d` (нужны `BOT_TOKEN` и `ALLOWED_CHAT_IDS` в `.env`).
 
 ---
 

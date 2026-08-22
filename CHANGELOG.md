@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 — 2026-08-22
+
+- Установка **только Docker**
+- Бот как в ProxyL: token → ждём `/start` → admin id сам
+- Бот быстрее (короткие timeout, сразу answerCallback, docker-status)
+- CLI упрощён (короткое меню)
+
 ## 1.4.4 — 2026-08-22
 
 - Дашборд понимает Docker (больше не пишет systemd missing/down)

@@ -490,29 +490,7 @@ TWPR_wizard_done() {
 }
 
 TWPR_pick_setup_mode() {
-  # already set via flag/env
-  if [[ -n "${TWPR_SETUP_MODE:-}" ]]; then
-    return 0
-  fi
-  # fully non-interactive
-  if [[ -n "${TWPR_HOSTNAME:-}" && -n "${TWPR_EMAIL:-}" && "${TWPR_YES:-}" == "1" ]]; then
-    TWPR_SETUP_MODE="${TWPR_MODE:-quick}"
-    return 0
-  fi
-
-  echo "  Как ставим?"
-  echo ""
-  echo -e "  ${C_BOLD}1${C_RESET})  Быстро на сервер ${C_DIM}(рекомендуется — 2 вопроса)${C_RESET}"
-  echo -e "  ${C_BOLD}2${C_RESET})  Docker Compose ${C_DIM}(контейнеры, удобно обновлять)${C_RESET}"
-  echo -e "  ${C_BOLD}3${C_RESET})  Расширенно ${C_DIM}(порты, workers, свой secret)${C_RESET}"
-  echo ""
-  local choice=""
-  TWPR_ask choice "Выберите" "1"
-  case "$choice" in
-    2|docker|d|D) TWPR_SETUP_MODE="docker" ;;
-    3|advanced|a|A) TWPR_SETUP_MODE="advanced" ;;
-    *) TWPR_SETUP_MODE="quick" ;;
-  esac
+  TWPR_SETUP_MODE="docker"
 }
 
 TWPR_wizard_quick_domain_email() {
@@ -544,99 +522,29 @@ TWPR_wizard_quick_domain_email() {
   fi
 }
 
-# Full guided install — one flow, no separate manual steps
+# Единственный способ установки — Docker
 TWPR_cmd_setup() {
   set +e
   TWPR_banner
-  echo "  Установка Telegram WEB Proxy"
-  echo "  Движок: telegramdesktop/tproxy-server"
+  echo "  Установка Telegram WEB Proxy · Docker"
   echo ""
-
   TWPR_load_state
-  TWPR_pick_setup_mode
-
-  case "${TWPR_SETUP_MODE}" in
-    docker)
-      TWPR_DEPLOY_MODE="docker"
-      # shellcheck disable=SC1091
-      source "${TWPR_ROOT}/lib/docker.sh"
-      TWPR_docker_install_engine
-      return
-      ;;
-    quick)
-      TWPR_TOTAL_STEPS=5
-      TWPR_DEPLOY_MODE="native"
-      TWPR_PORT_HTTP="${TWPR_PORT_HTTP:-80}"
-      TWPR_PORT_HTTPS="${TWPR_PORT_HTTPS:-443}"
-      TWPR_PORT_RELAY="${TWPR_PORT_RELAY:-8080}"
-      TWPR_PORT_ADMIN="${TWPR_PORT_ADMIN:-8081}"
-      TWPR_PORT_MTPROXY="${TWPR_PORT_MTPROXY:-2398}"
-      TWPR_MTPROXY_WORKERS="${TWPR_MTPROXY_WORKERS:-1}"
-      TWPR_MTPROXY_MAX_CONNECTIONS="${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
-
-      TWPR_wizard_check_system
-      TWPR_wizard_quick_domain_email
-      TWPR_wizard_ask_secret 3
-      TWPR_wizard_check_dns 4
-      TWPR_wizard_confirm 5
-      set -e
-      TWPR_wizard_deploy
-      set +e
-      TWPR_wizard_done
-      ;;
-    advanced|*)
-      TWPR_TOTAL_STEPS=9
-      TWPR_DEPLOY_MODE="native"
-      TWPR_wizard_check_system
-      TWPR_wizard_ask_domain
-      TWPR_wizard_ask_email
-      TWPR_wizard_ask_secret 4
-      TWPR_wizard_ask_ports
-      TWPR_wizard_ask_capacity
-      TWPR_wizard_check_dns 7
-      TWPR_wizard_confirm 8
-      set -e
-      TWPR_wizard_deploy
-      set +e
-      TWPR_wizard_done
-      ;;
-  esac
+  TWPR_SETUP_MODE="docker"
+  TWPR_DEPLOY_MODE="docker"
+  # shellcheck disable=SC1091
+  source "${TWPR_ROOT}/lib/docker.sh"
+  TWPR_docker_install_engine
 }
 
 TWPR_cmd_update() {
   TWPR_require_root
   TWPR_load_state
-  TWPR_fetch_engine
-  if [[ -x "${TWPR_ENGINE_DIR}/deploy/update-relay.sh" ]]; then
-    TWPR_info "Обновляю relay…"
-    bash "${TWPR_ENGINE_DIR}/deploy/update-relay.sh"
-    TWPR_ok "Relay обновлён"
-  else
-    TWPR_err "update-relay.sh не найден — сначала пройдите установку"
-    return 1
-  fi
+  TWPR_DEPLOY_MODE="docker"
+  TWPR_IMAGE_TAG="$(tr -d '[:space:]' <"${TWPR_ROOT}/version" 2>/dev/null || echo latest)"
+  TWPR_docker_up
   TWPR_cmd_status
 }
 
 TWPR_cmd_reinstall() {
-  TWPR_require_root
-  TWPR_load_state
-  if [[ -z "${TWPR_HOSTNAME:-}" || -z "${TWPR_EMAIL:-}" || -z "${TWPR_SECRET:-}" ]]; then
-    TWPR_info "Настроек нет — запускаю полный мастер"
-    TWPR_cmd_setup
-    return
-  fi
-  local choice=""
-  TWPR_warn "Повторный install перезапишет Caddyfile и single-profile"
-  TWPR_ask_yn choice "Продолжить с сохранёнными параметрами" "n"
-  if [[ "$choice" != "yes" ]]; then
-    TWPR_ask_yn choice "Пройти мастер заново" "Y"
-    [[ "$choice" == "yes" ]] && TWPR_cmd_setup
-    return
-  fi
-  TWPR_fetch_engine
-  TWPR_prepare_site
-  TWPR_run_official_install
-  TWPR_apply_ports
-  TWPR_cmd_link
+  TWPR_cmd_setup
 }

@@ -1,6 +1,6 @@
 # Fast MTProxy image — binary + telegram config from Release (or docker/bin in CI)
 FROM debian:bookworm-slim
-ARG TWPR_VERSION=1.4.4
+ARG TWPR_VERSION=1.5.0
 ARG USE_LOCAL_BIN=0
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
