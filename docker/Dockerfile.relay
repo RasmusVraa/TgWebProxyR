@@ -1,0 +1,22 @@
+# TgWebProxyR — Go relay (tproxy-server)
+FROM golang:1.22-bookworm AS build
+ARG TPROXY_REF=master
+WORKDIR /src
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && git clone --depth 1 --branch "${TPROXY_REF}" \
+       https://github.com/telegramdesktop/tproxy-server.git . \
+  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
+       -o /out/tproxy-server ./cmd/tproxy-server
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --system --home /nonexistent --shell /usr/sbin/nologin tproxy
+COPY --from=build /out/tproxy-server /usr/local/bin/tproxy-server
+COPY docker/entrypoint-relay.sh /usr/local/bin/entrypoint-relay.sh
+RUN chmod +x /usr/local/bin/entrypoint-relay.sh /usr/local/bin/tproxy-server \
+  && mkdir -p /etc/tproxy-server /srv/tproxy-site \
+  && chown -R tproxy:tproxy /etc/tproxy-server
+EXPOSE 8080 8081
+ENTRYPOINT ["/usr/local/bin/entrypoint-relay.sh"]

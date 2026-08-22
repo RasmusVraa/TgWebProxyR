@@ -8,6 +8,33 @@ TWPR_cmd_status() {
   echo -e "  ${C_BOLD}Статус сервисов${C_RESET}"
   echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
 
+  if [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]]; then
+    TWPR_info "Режим: Docker Compose"
+    if [[ -f "${TWPR_ROOT}/docker/.env" ]]; then
+      (cd "${TWPR_ROOT}/docker" && docker compose --env-file .env ps) 2>/dev/null || TWPR_warn "docker compose ps недоступен"
+    else
+      TWPR_warn "Нет ${TWPR_ROOT}/docker/.env — сначала: tgwebproxyr docker setup"
+    fi
+    echo ""
+    if docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/readyz >/dev/null 2>&1; then
+      TWPR_ok "relay readyz OK"
+    elif docker compose -f "${TWPR_ROOT}/docker/docker-compose.yml" \
+         --env-file "${TWPR_ROOT}/docker/.env" \
+         exec -T relay curl -fsS --max-time 3 http://127.0.0.1:8081/healthz >/dev/null 2>&1; then
+      TWPR_warn "relay healthz OK, readyz ещё нет"
+    else
+      TWPR_warn "relay health недоступен"
+    fi
+    if [[ -n "${TWPR_HOSTNAME:-}" ]]; then
+      echo ""
+      TWPR_info "Hostname: ${TWPR_HOSTNAME}"
+      TWPR_info "Сайт:    https://${TWPR_HOSTNAME}/"
+    fi
+    return 0
+  fi
+
   local units=(caddy tproxy-firewall mtproxy tproxy-server)
   local u st
   for u in "${units[@]}"; do

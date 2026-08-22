@@ -20,6 +20,7 @@
 
 - [Как это работает](#how)
 - [Установка](#install)
+- [Docker Compose](#docker-compose)
 - [Быстрый старт](#quickstart)
 - [Подключение в Telegram](#client)
 - [CLI](#cli)
@@ -80,20 +81,38 @@ https://t.me/webproxy?server=proxy.example.com&secret=<32hex>
 На чистом **Ubuntu 22.04+ / Debian 12+** (x86_64):
 
 ```bash
-wget -qO /tmp/tgwebproxyr-install.sh \
+wget -qO /tmp/twpr.sh \
   https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh \
-  && sudo bash /tmp/tgwebproxyr-install.sh
+  && sudo bash /tmp/twpr.sh
 ```
 
-Или:
+Мастер спросит режим:
+
+1. **Быстро** (рекомендуется) — только домен и email, остальное само
+2. **Docker Compose** — Caddy + relay + MTProxy в контейнерах
+3. **Расширенно** — порты, workers, свой secret
+
+Сразу быстрый режим:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RasmusVraa/TgWebProxyR/main/install.sh | sudo bash
+sudo bash /tmp/twpr.sh --quick
 ```
 
-One-liner сразу открывает **пошаговый мастер** (домен → email → secret → DNS → установка Caddy/MTProxy/relay → ссылки).
+Сразу Docker:
 
-Потом управление одной командой:
+```bash
+sudo bash /tmp/twpr.sh --docker
+```
+
+Без вопросов (CI / скрипты):
+
+```bash
+sudo TWPR_HOSTNAME=proxy.example.com \
+     TWPR_EMAIL=you@example.com \
+     TWPR_YES=1 bash /tmp/twpr.sh --quick
+```
+
+Потом:
 
 ```bash
 sudo tgwebproxyr
@@ -103,23 +122,45 @@ sudo tgwebproxyr
 
 
 
+## Docker Compose
+
+Если уже клонировали репозиторий:
+
+```bash
+cd docker
+cp .env.example .env   # TWPR_HOSTNAME, TWPR_EMAIL, TWPR_SECRET
+docker compose up -d --build
+```
+
+Или через менеджер на VPS:
+
+```bash
+sudo tgwebproxyr docker setup
+sudo tgwebproxyr docker status
+sudo tgwebproxyr docker logs
+```
+
+Стек: `caddy` (80/443 + ACME) → `relay` (tproxy-server) → `mtproxy`.
+
+Опциональный бот: `docker compose --profile bot up -d` (нужны `BOT_TOKEN` и `ALLOWED_CHAT_IDS` в `.env`).
+
+---
+
+
+
 ## Быстрый старт
 
-1. Создайте DNS **A**-запись: `proxy.example.com → IP_VPS` (без CDN).
-2. Откройте на хостинге/firewall **TCP 80 и 443** (SSH по возможности ограничьте своим IP).
-3. Запустите установку одной командой выше.
-4. В мастере укажите:
-  - домен
-  - email для Let’s Encrypt
-  - secret (можно сгенерировать автоматически)
-  - порты (или оставить 80/443 + локальные по умолчанию)
-5. Получите ссылку:
+1. DNS **A**-запись: `proxy.example.com → IP_VPS` (без CDN).
+2. Откройте **TCP 80 и 443**.
+3. Запустите установку (`--quick` или пункт «Быстро»).
+4. Введите домен и email — secret сгенерируется сам.
+5. Ссылка:
 
 ```bash
 sudo tgwebproxyr link
 ```
 
-1. В Telegram Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
+6. Telegram Desktop: **Settings → Advanced → Connection type → Add proxy → WEB**.
 
 ---
 
@@ -154,8 +195,10 @@ sudo tgwebproxyr link
 
 ```text
 tgwebproxyr                 дашборд
-tgwebproxyr setup           полный мастер
-tgwebproxyr bot setup       Telegram-бот (меню как у ProxyL)
+tgwebproxyr setup           мастер: быстро / Docker / расширенно
+tgwebproxyr setup --quick
+tgwebproxyr docker setup    Docker Compose
+tgwebproxyr bot setup       Telegram-бот
 tgwebproxyr backup create   бэкап конфигов
 tgwebproxyr status | link | doctor | uninstall
 ```

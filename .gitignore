@@ -1,4 +1,4 @@
-_ref_install.sh
+docker/.env
 *.log
 *.tmp
 .DS_Store
@@ -6,3 +6,4 @@ _ref_install.sh
 .vscode/
 *.swp
 *~
+_ref_install.sh

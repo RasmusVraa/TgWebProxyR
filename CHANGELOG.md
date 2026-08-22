@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.0 — 2026-08-22
+
+- Упрощённый установщик: выбор режима «быстро / Docker / расширенно»
+- Быстрая установка — только домен + email (secret и порты по умолчанию)
+- Non-interactive: `TWPR_HOSTNAME` + `TWPR_EMAIL` + `TWPR_YES=1`
+- **Docker Compose**: Caddy + tproxy-server + MTProxy (`docker/`, `tgwebproxyr docker setup`)
+- CLI: `tgwebproxyr setup --quick|--docker|--advanced`
+
 ## 1.3.0 — 2026-08-22
 
 - Telegram-бот с inline-меню (статус, прокси, пользователи, ссылки, трафик, доступность, бэкапы, doctor)

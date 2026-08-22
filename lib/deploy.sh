@@ -2,6 +2,8 @@
 # TgWebProxyR — guided install wizard + engine deploy
 
 TWPR_TOTAL_STEPS=9
+# quick | advanced | docker — задаётся из CLI / install.sh / env
+TWPR_SETUP_MODE="${TWPR_SETUP_MODE:-}"
 
 TWPR_patch_upstream_install() {
   local inst="${TWPR_ENGINE_DIR}/deploy/install.sh"
@@ -334,9 +336,15 @@ TWPR_wizard_ask_email() {
 }
 
 TWPR_wizard_ask_secret() {
-  TWPR_step 4 "$TWPR_TOTAL_STEPS" "Secret"
   local secret="" choice=""
+  local step_n="${1:-4}"
+  TWPR_step "$step_n" "$TWPR_TOTAL_STEPS" "Secret"
+
   if [[ -n "${TWPR_SECRET:-}" ]]; then
+    if [[ "${TWPR_YES:-}" == "1" ]] || [[ "${TWPR_SETUP_MODE}" == "quick" ]]; then
+      TWPR_ok "Secret из окружения / прошлый: …${TWPR_SECRET: -4}"
+      return 0
+    fi
     TWPR_info "Уже сохранён secret: ${TWPR_SECRET}"
     TWPR_ask_yn choice "Оставить его" "Y"
     if [[ "$choice" == "yes" ]]; then
@@ -346,6 +354,12 @@ TWPR_wizard_ask_secret() {
   fi
 
   secret="$(TWPR_gen_secret)"
+  if [[ "${TWPR_SETUP_MODE}" == "quick" ]] || [[ "${TWPR_YES:-}" == "1" ]]; then
+    TWPR_SECRET="$secret"
+    TWPR_ok "Secret сгенерирован автоматически"
+    return 0
+  fi
+
   TWPR_info "Сгенерирован: ${C_BOLD}${secret}${C_RESET}"
   TWPR_ask_yn choice "Ввести свой вместо этого" "n"
   if [[ "$choice" == "yes" ]]; then
@@ -373,7 +387,8 @@ TWPR_wizard_ask_capacity() {
 }
 
 TWPR_wizard_check_dns() {
-  TWPR_step 7 "$TWPR_TOTAL_STEPS" "DNS и фаервол"
+  local step_n="${1:-7}"
+  TWPR_step "$step_n" "$TWPR_TOTAL_STEPS" "DNS и фаервол"
   local ip dig_out choice=""
   ip="$(TWPR_detect_public_ip || true)"
   if [[ -n "$ip" ]]; then
@@ -392,38 +407,50 @@ TWPR_wizard_check_dns() {
     TWPR_info "DNS A ${TWPR_HOSTNAME} → ${dig_out}"
     if [[ -n "$ip" && "$dig_out" != "$ip" ]]; then
       TWPR_warn "DNS пока не указывает на этот сервер — сертификат может не выписаться"
-      TWPR_ask_yn choice "Продолжить всё равно" "Y"
-      [[ "$choice" == "yes" ]] || exit 1
+      if [[ "${TWPR_YES:-}" != "1" ]]; then
+        TWPR_ask_yn choice "Продолжить всё равно" "Y"
+        [[ "$choice" == "yes" ]] || exit 1
+      fi
     else
       TWPR_ok "DNS выглядит корректно"
     fi
   else
     TWPR_warn "Домен пока не резолвится. Создайте A-запись и подождите минуту."
-    TWPR_ask_yn choice "Продолжить всё равно" "Y"
-    [[ "$choice" == "yes" ]] || exit 1
+    if [[ "${TWPR_YES:-}" != "1" ]]; then
+      TWPR_ask_yn choice "Продолжить всё равно" "Y"
+      [[ "$choice" == "yes" ]] || exit 1
+    fi
   fi
 
-  TWPR_open_firewall
+  TWPR_open_firewall 2>/dev/null || true
   TWPR_info "В панели хостинга откройте TCP ${TWPR_PORT_HTTP:-80} и ${TWPR_PORT_HTTPS:-443}"
 }
 
 TWPR_wizard_confirm() {
-  TWPR_step 8 "$TWPR_TOTAL_STEPS" "Подтверждение"
+  local step_n="${1:-8}"
+  TWPR_step "$step_n" "$TWPR_TOTAL_STEPS" "Подтверждение"
   echo ""
   echo -e "  ${C_BOLD}Будет установлено:${C_RESET}"
   echo "    hostname : ${TWPR_HOSTNAME}"
   echo "    email    : ${TWPR_EMAIL}"
   echo "    secret   : ${TWPR_SECRET}"
-  echo "    workers  : ${TWPR_MTPROXY_WORKERS}"
+  echo "    режим    : ${TWPR_DEPLOY_MODE:-native}"
+  echo "    workers  : ${TWPR_MTPROXY_WORKERS:-1}"
   echo "    HTTP     : ${TWPR_PORT_HTTP:-80}"
   echo "    HTTPS    : ${TWPR_PORT_HTTPS:-443}"
-  echo "    relay    : ${TWPR_PORT_RELAY:-8080} (localhost)"
-  echo "    admin    : ${TWPR_PORT_ADMIN:-8081} (localhost)"
-  echo "    mtproxy  : ${TWPR_PORT_MTPROXY:-2398} (localhost)"
+  if [[ "${TWPR_DEPLOY_MODE:-native}" != "docker" ]]; then
+    echo "    relay    : ${TWPR_PORT_RELAY:-8080} (localhost)"
+    echo "    admin    : ${TWPR_PORT_ADMIN:-8081} (localhost)"
+    echo "    mtproxy  : ${TWPR_PORT_MTPROXY:-2398} (localhost)"
+  fi
   echo "    сайт     : ${TWPR_SITE_DIR}"
   echo ""
   local choice=""
-  TWPR_ask_yn choice "Начать установку движка" "Y"
+  if [[ "${TWPR_YES:-}" == "1" ]]; then
+    choice="yes"
+  else
+    TWPR_ask_yn choice "Начать установку" "Y"
+  fi
   [[ "$choice" == "yes" ]] || { TWPR_warn "Отменено"; exit 0; }
 
   TWPR_INSTALLED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -431,7 +458,7 @@ TWPR_wizard_confirm() {
 }
 
 TWPR_wizard_deploy() {
-  TWPR_step 9 "$TWPR_TOTAL_STEPS" "Установка движка"
+  TWPR_step "$TWPR_TOTAL_STEPS" "$TWPR_TOTAL_STEPS" "Установка движка"
   TWPR_fetch_engine
   TWPR_prepare_site
   TWPR_run_official_install
@@ -462,27 +489,118 @@ TWPR_wizard_done() {
   TWPR_info "Меню управления:  ${C_BOLD}tgwebproxyr${C_RESET}"
 }
 
+TWPR_pick_setup_mode() {
+  # already set via flag/env
+  if [[ -n "${TWPR_SETUP_MODE:-}" ]]; then
+    return 0
+  fi
+  # fully non-interactive
+  if [[ -n "${TWPR_HOSTNAME:-}" && -n "${TWPR_EMAIL:-}" && "${TWPR_YES:-}" == "1" ]]; then
+    TWPR_SETUP_MODE="${TWPR_MODE:-quick}"
+    return 0
+  fi
+
+  echo "  Как ставим?"
+  echo ""
+  echo -e "  ${C_BOLD}1${C_RESET})  Быстро на сервер ${C_DIM}(рекомендуется — 2 вопроса)${C_RESET}"
+  echo -e "  ${C_BOLD}2${C_RESET})  Docker Compose ${C_DIM}(контейнеры, удобно обновлять)${C_RESET}"
+  echo -e "  ${C_BOLD}3${C_RESET})  Расширенно ${C_DIM}(порты, workers, свой secret)${C_RESET}"
+  echo ""
+  local choice=""
+  TWPR_ask choice "Выберите" "1"
+  case "$choice" in
+    2|docker|d|D) TWPR_SETUP_MODE="docker" ;;
+    3|advanced|a|A) TWPR_SETUP_MODE="advanced" ;;
+    *) TWPR_SETUP_MODE="quick" ;;
+  esac
+}
+
+TWPR_wizard_quick_domain_email() {
+  TWPR_step 2 "$TWPR_TOTAL_STEPS" "Домен и email"
+  echo "  Перед запуском:"
+  echo "    • DNS A: ваш-домен → IP этого VPS (без CDN)"
+  echo "    • открыты TCP 80 и 443"
+  echo ""
+
+  if [[ -z "${TWPR_HOSTNAME:-}" ]]; then
+    while true; do
+      TWPR_ask TWPR_HOSTNAME "Домен (hostname)"
+      TWPR_HOSTNAME="$(echo "$TWPR_HOSTNAME" | tr '[:upper:]' '[:lower:]')"
+      TWPR_validate_hostname "$TWPR_HOSTNAME" && break
+      TWPR_warn "Пример: proxy.example.com"
+    done
+  else
+    TWPR_ok "Домен: ${TWPR_HOSTNAME}"
+  fi
+
+  if [[ -z "${TWPR_EMAIL:-}" ]]; then
+    while true; do
+      TWPR_ask TWPR_EMAIL "Email для Let's Encrypt"
+      TWPR_validate_email "$TWPR_EMAIL" && break
+      TWPR_warn "Некорректный email"
+    done
+  else
+    TWPR_ok "Email: ${TWPR_EMAIL}"
+  fi
+}
+
 # Full guided install — one flow, no separate manual steps
 TWPR_cmd_setup() {
   set +e
   TWPR_banner
-  echo "  Пошаговая установка Telegram WEB Proxy на этот сервер."
+  echo "  Установка Telegram WEB Proxy"
   echo "  Движок: telegramdesktop/tproxy-server"
   echo ""
 
   TWPR_load_state
-  TWPR_wizard_check_system
-  TWPR_wizard_ask_domain
-  TWPR_wizard_ask_email
-  TWPR_wizard_ask_secret
-  TWPR_wizard_ask_ports
-  TWPR_wizard_ask_capacity
-  TWPR_wizard_check_dns
-  TWPR_wizard_confirm
-  set -e
-  TWPR_wizard_deploy
-  set +e
-  TWPR_wizard_done
+  TWPR_pick_setup_mode
+
+  case "${TWPR_SETUP_MODE}" in
+    docker)
+      TWPR_DEPLOY_MODE="docker"
+      # shellcheck disable=SC1091
+      source "${TWPR_ROOT}/lib/docker.sh"
+      TWPR_docker_install_engine
+      return
+      ;;
+    quick)
+      TWPR_TOTAL_STEPS=5
+      TWPR_DEPLOY_MODE="native"
+      TWPR_PORT_HTTP="${TWPR_PORT_HTTP:-80}"
+      TWPR_PORT_HTTPS="${TWPR_PORT_HTTPS:-443}"
+      TWPR_PORT_RELAY="${TWPR_PORT_RELAY:-8080}"
+      TWPR_PORT_ADMIN="${TWPR_PORT_ADMIN:-8081}"
+      TWPR_PORT_MTPROXY="${TWPR_PORT_MTPROXY:-2398}"
+      TWPR_MTPROXY_WORKERS="${TWPR_MTPROXY_WORKERS:-1}"
+      TWPR_MTPROXY_MAX_CONNECTIONS="${TWPR_MTPROXY_MAX_CONNECTIONS:-4096}"
+
+      TWPR_wizard_check_system
+      TWPR_wizard_quick_domain_email
+      TWPR_wizard_ask_secret 3
+      TWPR_wizard_check_dns 4
+      TWPR_wizard_confirm 5
+      set -e
+      TWPR_wizard_deploy
+      set +e
+      TWPR_wizard_done
+      ;;
+    advanced|*)
+      TWPR_TOTAL_STEPS=9
+      TWPR_DEPLOY_MODE="native"
+      TWPR_wizard_check_system
+      TWPR_wizard_ask_domain
+      TWPR_wizard_ask_email
+      TWPR_wizard_ask_secret 4
+      TWPR_wizard_ask_ports
+      TWPR_wizard_ask_capacity
+      TWPR_wizard_check_dns 7
+      TWPR_wizard_confirm 8
+      set -e
+      TWPR_wizard_deploy
+      set +e
+      TWPR_wizard_done
+      ;;
+  esac
 }
 
 TWPR_cmd_update() {

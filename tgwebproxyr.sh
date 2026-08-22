@@ -28,16 +28,21 @@ source "${TWPR_ROOT}/lib/uninstall.sh"
 source "${TWPR_ROOT}/lib/bot.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/backup.sh"
+# shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/docker.sh"
 
 TWPR_usage() {
   cat <<EOF
 ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
 
   tgwebproxyr              дашборд (или мастер, если ещё не установлено)
-  tgwebproxyr setup        полный пошаговый мастер установки
+  tgwebproxyr setup        мастер: быстро / Docker / расширенно
+  tgwebproxyr setup --quick
+  tgwebproxyr setup --docker
+  tgwebproxyr docker …     up|down|status|logs|link|setup
   tgwebproxyr status       статус сервисов
   tgwebproxyr link         ссылки для Telegram
-  tgwebproxyr logs         journalctl
+  tgwebproxyr logs         journalctl / docker logs
   tgwebproxyr update       обновить relay
   tgwebproxyr doctor       починить / дождаться ready
   tgwebproxyr reinstall    переустановка
@@ -88,7 +93,8 @@ TWPR_dashboard() {
     echo -e "  ${C_BOLD}7${C_RESET})  Добавить ещё один secret"
     echo -e "  ${C_BOLD}8${C_RESET})  Telegram-бот"
     echo -e "  ${C_BOLD}9${C_RESET})  Бэкапы"
-    echo -e "  ${C_BOLD}10${C_RESET}) Удалить всё"
+    echo -e "  ${C_BOLD}10${C_RESET}) Docker Compose"
+    echo -e "  ${C_BOLD}11${C_RESET}) Удалить всё"
     echo -e "  ${C_BOLD}0${C_RESET})  Выход"
     echo ""
 
@@ -111,7 +117,8 @@ TWPR_dashboard() {
         [[ "$bchoice" == "yes" ]] && TWPR_backup_create
         TWPR_pause
         ;;
-      10) TWPR_cmd_uninstall; TWPR_pause ;;
+      10) TWPR_cmd_docker; TWPR_pause ;;
+      11) TWPR_cmd_uninstall; TWPR_pause ;;
       0|q|Q) exit 0 ;;
       *) TWPR_warn "Неизвестный пункт"; sleep 1 ;;
     esac
@@ -130,7 +137,16 @@ main() {
       echo "TgWebProxyR ${TWPR_VERSION}"
       ;;
     setup|install)
-      TWPR_cmd_setup "$@"
+      # flags: --quick --docker --advanced --yes
+      for a in "$@"; do
+        case "$a" in
+          --quick|-q) export TWPR_SETUP_MODE="quick" ;;
+          --docker|-d) export TWPR_SETUP_MODE="docker" ;;
+          --advanced|-a) export TWPR_SETUP_MODE="advanced" ;;
+          --yes|-y) export TWPR_YES=1 ;;
+        esac
+      done
+      TWPR_cmd_setup
       ;;
     status)
       TWPR_cmd_status "$@"
@@ -139,18 +155,34 @@ main() {
       TWPR_cmd_link "$@"
       ;;
     logs)
-      TWPR_cmd_logs "$@"
+      TWPR_load_state
+      if [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]]; then
+        TWPR_cmd_docker logs "$@"
+      else
+        TWPR_cmd_logs "$@"
+      fi
       ;;
     metrics)
       TWPR_cmd_metrics "$@"
       ;;
     update)
-      TWPR_cmd_update "$@"
+      TWPR_load_state
+      if [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]]; then
+        TWPR_cmd_docker build
+        TWPR_cmd_docker up
+      else
+        TWPR_cmd_update "$@"
+      fi
       ;;
     doctor|fix|repair)
       TWPR_require_root
       TWPR_load_state
-      TWPR_ensure_relay_ready
+      if [[ "${TWPR_DEPLOY_MODE:-}" == "docker" ]]; then
+        TWPR_cmd_docker restart
+        TWPR_cmd_docker status
+      else
+        TWPR_ensure_relay_ready
+      fi
       ;;
     reinstall)
       TWPR_cmd_reinstall "$@"
@@ -168,6 +200,9 @@ main() {
       ;;
     backup|backups)
       TWPR_cmd_backup "$@"
+      ;;
+    docker)
+      TWPR_cmd_docker "$@"
       ;;
     uninstall|remove)
       TWPR_cmd_uninstall "$@"

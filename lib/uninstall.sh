@@ -4,12 +4,17 @@
 TWPR_cmd_uninstall() {
   TWPR_require_root
   TWPR_banner
-  TWPR_warn "Остановлю и удалю Caddy / tproxy-server / mtproxy"
+  TWPR_load_state
+  TWPR_warn "Остановлю и удалю Caddy / tproxy-server / mtproxy (и Docker-стек, если был)"
   local choice="" keep=""
   TWPR_ask_yn choice "Точно удалить TgWebProxyR" "n"
   [[ "$choice" == "yes" ]] || return 0
 
   TWPR_ask_yn keep "Сохранить сайт ${TWPR_SITE_DIR}" "Y"
+
+  if [[ -f "${TWPR_ROOT}/docker/docker-compose.yml" ]] && command -v docker >/dev/null 2>&1; then
+    (cd "${TWPR_ROOT}/docker" && docker compose --env-file .env down -v 2>/dev/null) || true
+  fi
 
   systemctl stop caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
   systemctl disable caddy tproxy-server mtproxy tproxy-firewall refresh-mtproxy-config.timer tgwebproxyr-bot 2>/dev/null || true
