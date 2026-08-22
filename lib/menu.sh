@@ -50,7 +50,7 @@ TWPR_dashboard() {
       8) TWPR_bot_menu; TWPR_pause ;;
       9) TWPR_menu_ops ;;
       i|I) TWPR_menu_install ;;
-      u|U) TWPR_cmd_uninstall; TWPR_pause ;;
+      u|U) TWPR_cmd_uninstall ;;
       0|q|Q) exit 0 ;;
       *) ;;
     esac

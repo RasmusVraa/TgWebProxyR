@@ -8,7 +8,7 @@ TWPR_cmd_uninstall() {
   TWPR_warn "Остановлю и удалю Caddy / tproxy-server / mtproxy (и Docker-стек, если был)"
   local choice="" keep=""
   TWPR_ask_yn choice "Точно удалить TgWebProxyR" "n"
-  [[ "$choice" == "yes" ]] || return 0
+  [[ "$choice" == "yes" ]] || return 1
 
   TWPR_ask_yn keep "Сохранить сайт ${TWPR_SITE_DIR}" "Y"
 
@@ -38,5 +38,11 @@ TWPR_cmd_uninstall() {
   fi
 
   nft delete table inet tproxy_backend 2>/dev/null || true
+
+  echo ""
   TWPR_ok "Удаление завершено"
+  echo -e "  ${C_DIM}Команда tgwebproxyr больше недоступна.${C_RESET}"
+  echo ""
+  # не возвращаемся в меню — скрипт уже с диска стёрт
+  exit 0
 }
