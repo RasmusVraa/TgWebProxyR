@@ -7,3 +7,5 @@ docker/.env
 *.swp
 *~
 _ref_install.sh
+**/__pycache__/
+*.pyc

@@ -22,8 +22,11 @@ SETTINGS = STATE_DIR / "settings.env"
 REGISTRY = STATE_DIR / "profiles.json"  # единый реестр (default всегда первый)
 BACKUP_DIR = Path(os.environ.get("TWPR_BACKUP_DIR", "/opt/tgwebproxyr/backups"))
 DOCKER_DIR = Path("/opt/tgwebproxyr/docker")
+CLI = Path(os.environ.get("TWPR_CLI", "/opt/tgwebproxyr/tgwebproxyr.sh"))
 API = "https://api.telegram.org/bot{token}/{method}"
 PER_PAGE = 8
+# chat_id -> {"action": "add"|"rename", "old": str, "mid": int|None}
+PENDING: dict[int, dict[str, Any]] = {}
 
 
 def esc(v: Any) -> str:
@@ -104,12 +107,25 @@ def back_kb(target: str = "m:root") -> dict[str, Any]:
     return kb([[("⬅️ Меню", target)]])
 
 
-def sh(cmd: list[str], timeout: float = 4) -> str:
+def sh(cmd: list[str], timeout: float = 4, env: dict[str, str] | None = None) -> str:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        e = {**os.environ, **(env or {})}
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=e)
         return ((r.stdout or "") + (r.stderr or "")).strip()
     except Exception as e:
         return str(e)
+
+
+def sanitize_name(raw: str) -> str:
+    return "".join(c for c in raw.strip() if c.isalnum() or c in "._-")[:48]
+
+
+def cli_secret(*args: str, timeout: float = 120) -> str:
+    return sh([str(CLI), "secret", *args], timeout=timeout, env={"TWPR_YES": "1"})
+
+
+def apply_profiles() -> str:
+    return cli_secret("apply", timeout=100)
 
 
 # ── профили (реестр на хосте, default всегда первый) ─────────────────────────
@@ -310,7 +326,7 @@ def text_user_card(name: str) -> tuple[str, dict[str, Any]]:
     )
     rows = [[("🔗 Ссылка", f"l:show:{name}")]]
     if name != "default":
-        rows.append([("🗑 Удалить", f"u:del:{name}")])
+        rows.append([("✏️ Имя", f"u:ren:{name}"), ("🗑 Удалить", f"u:del:{name}")])
     rows.append([("⬅️ К списку", "u:list:0")])
     return body, kb(rows)
 
@@ -366,13 +382,80 @@ def logs_kb() -> dict[str, Any]:
     return kb([[("🔃 Обновить", "m:logs"), ("⬅️ Меню", "m:root")]])
 
 
+def _fetch_metrics() -> str:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8081/metrics", timeout=2.5) as r:
+            return r.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _human_bytes(n: float) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    v = float(n)
+    i = 0
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    return f"{v:.1f} {units[i]}"
+
+
 def text_traffic() -> str:
     users = load_profiles()
+    raw = _fetch_metrics()
     lines = [
         "<b>Трафик</b>\n",
         f"Профилей: <b>{len(users)}</b>",
-        f"default: <code>{'есть' if secret_default() else 'нет'}</code>",
     ]
+    if not raw:
+        lines.append("\nМетрики недоступны (relay :8081).")
+        return "\n".join(lines)
+
+    sessions = None
+    bytes_map: dict[str, float] = {}
+    for ln in raw.splitlines():
+        if not ln or ln.startswith("#"):
+            continue
+        parts = ln.split()
+        if len(parts) < 2:
+            continue
+        key, val = parts[0], parts[-1]
+        try:
+            num = float(val)
+        except ValueError:
+            continue
+        low = key.lower()
+        if sessions is None and "session" in low and (
+            "active" in low or "current" in low or low.endswith("_sessions") or "{}" in low or low.endswith("sessions")
+        ):
+            sessions = num
+        if "byte" in low or "traffic" in low:
+            bytes_map[key] = num
+
+    if sessions is not None:
+        lines.append(f"Активные сессии: <b>{int(sessions) if sessions == int(sessions) else sessions}</b>")
+    else:
+        lines.append("Активные сессии: <i>—</i>")
+
+    if bytes_map:
+        lines.append("")
+        # предпочитаем in/out; иначе топ значений
+        shown = 0
+        preferred = [k for k in bytes_map if any(x in k.lower() for x in ("in", "out", "rx", "tx", "sent", "recv"))]
+        keys = preferred or sorted(bytes_map, key=lambda k: -bytes_map[k])
+        for k in keys[:8]:
+            lines.append(f"• <code>{esc(k)}</code>: <b>{_human_bytes(bytes_map[k])}</b>")
+            shown += 1
+        if not shown:
+            total = sum(bytes_map.values())
+            lines.append(f"Всего (сумма *bytes*): <b>{_human_bytes(total)}</b>")
+    else:
+        lines.append("Счётчики байт в /metrics не найдены.")
+        snippet = "\n".join(ln for ln in raw.splitlines() if ln and not ln.startswith("#"))[:400]
+        if snippet:
+            lines.append(f"\n<pre>{esc(snippet)}</pre>")
+
+    lines.append("\n<i>Глобальные метрики relay; per-user — если есть лейблы в экспорте.</i>")
     return "\n".join(lines)
 
 
@@ -656,36 +739,33 @@ def handle_callback(cq: dict[str, Any]) -> None:
         show(chat, mid, text_proxy(), proxy_kb())
         return
 
-    if data.startswith("u:list:"):
-        page = int(data.split(":")[-1] or 0)
-        body, markup = text_users_page(page)
-        show(chat, mid, body, markup)
-        return
-
     if data == "u:add":
-        sec = pysecrets.token_hex(16)
-        name = f"user{int(time.time()) % 100000}"
-        profiles = load_profiles()
-        if any(p.get("name") == name for p in profiles):
-            name = f"user{pysecrets.token_hex(3)}"
-        profiles.append(
-            {"name": name, "secret": sec, "backend": "127.0.0.1:2398", "carrier_mode": "https"}
-        )
-        save_registry(profiles)
-        host = hostname()
-        note = ""
-        if is_docker():
-            note = "\n\n<i>В Docker движок сейчас принимает только default. Профиль сохранён в реестре.</i>"
+        PENDING[int(chat)] = {"action": "add", "mid": mid}
         show(
             chat,
             mid,
-            f"<b>+ {esc(name)}</b>\n<code>{esc(sec)}</code>\n\n"
-            f"<code>{esc(tg_link(host, sec))}</code>{note}",
-            kb([[("⬅️ К списку", "u:list:0")]]),
+            "<b>Новый пользователь</b>\n\nОтправьте <b>имя</b> сообщением\n"
+            "(латиница, цифры, <code>._-</code>).",
+            kb([[("❌ Отмена", "u:list:0")]]),
+        )
+        return
+
+    if data.startswith("u:ren:"):
+        name = data.split(":", 2)[2]
+        if name == "default":
+            show(chat, mid, "default нельзя переименовать.", back_kb("u:list:0"))
+            return
+        PENDING[int(chat)] = {"action": "rename", "old": name, "mid": mid}
+        show(
+            chat,
+            mid,
+            f"<b>Переименовать</b> <code>{esc(name)}</code>\n\nОтправьте новое имя.",
+            kb([[("❌ Отмена", f"u:show:{name}")]]),
         )
         return
 
     if data.startswith("u:show:"):
+        PENDING.pop(int(chat), None)
         name = data.split(":", 2)[2]
         body, markup = text_user_card(name)
         show(chat, mid, body, markup)
@@ -696,10 +776,16 @@ def handle_callback(cq: dict[str, Any]) -> None:
         if name == "default":
             show(chat, mid, "default нельзя удалить — только rotate на сервере.", back_kb("u:list:0"))
             return
-        profiles = [p for p in load_profiles() if p.get("name") != name]
-        save_registry(profiles)
+        out = cli_secret("remove", name)
         body, markup = text_users_page(0)
-        show(chat, mid, f"Удалён <b>{esc(name)}</b>\n\n" + body, markup)
+        show(chat, mid, f"Удалён <b>{esc(name)}</b>\n<pre>{esc(out[-400:])}</pre>\n\n" + body, markup)
+        return
+
+    if data.startswith("u:list:"):
+        PENDING.pop(int(chat), None)
+        page = int(data.split(":")[-1] or 0)
+        body, markup = text_users_page(page)
+        show(chat, mid, body, markup)
         return
 
     if data.startswith("l:list:"):
@@ -719,7 +805,7 @@ def handle_callback(cq: dict[str, Any]) -> None:
         return
 
     if data == "m:traffic":
-        show(chat, mid, text_traffic(), back_kb())
+        show(chat, mid, text_traffic(), kb([[("🔃 Обновить", "m:traffic"), ("⬅️ Меню", "m:root")]]))
         return
 
     if data == "m:backups":
@@ -812,7 +898,46 @@ def handle_message(msg: dict[str, Any]) -> None:
         send_message(chat, "⛔ Нет доступа.")
         return
 
+    # ожидание имени (add / rename)
+    pend = PENDING.get(int(chat))
+    if pend and text and not text.startswith("/"):
+        action = pend.get("action")
+        mid = pend.get("mid")
+        name = sanitize_name(text)
+        if not name or name == "default":
+            send_message(chat, "Некорректное имя. Попробуйте ещё раз или /users")
+            return
+        PENDING.pop(int(chat), None)
+        if action == "add":
+            send_message(chat, f"⏳ Создаю <b>{esc(name)}</b>…")
+            out = cli_secret("add", name)
+            p = next((x for x in load_profiles() if x.get("name") == name), None)
+            if not p:
+                send_message(chat, f"Не удалось создать.\n<pre>{esc(out[-500:])}</pre>", back_kb("u:list:0"))
+                return
+            sec = str(p.get("secret", ""))
+            host = hostname()
+            send_message(
+                chat,
+                f"<b>+ {esc(name)}</b>\n<code>{esc(sec)}</code>\n\n"
+                f"<code>{esc(tg_link(host, sec))}</code>\n"
+                f"<code>{esc(web_link(host, sec))}</code>",
+                kb([[("👤 Карточка", f"u:show:{name}"), ("⬅️ Список", "u:list:0")]]),
+            )
+            return
+        if action == "rename":
+            old = str(pend.get("old") or "")
+            send_message(chat, f"⏳ {esc(old)} → {esc(name)}…")
+            out = cli_secret("rename", old, name)
+            if not any(x.get("name") == name for x in load_profiles()):
+                send_message(chat, f"Ошибка.\n<pre>{esc(out[-400:])}</pre>", back_kb("u:list:0"))
+                return
+            body, markup = text_user_card(name)
+            send_message(chat, f"✅ Переименован\n\n{body}", markup)
+            return
+
     if text.startswith(("/start", "/menu")):
+        PENDING.pop(int(chat), None)
         send_message(chat, "<b>TgWebProxyR</b>\nВыберите раздел.", main_menu_kb())
         return
 
@@ -822,9 +947,10 @@ def handle_message(msg: dict[str, Any]) -> None:
         "/users": (lambda: text_users_page(0)[0], lambda: text_users_page(0)[1]),
         "/links": (lambda: text_links_page(0)[0], lambda: text_links_page(0)[1]),
         "/logs": (text_logs, logs_kb),
+        "/traffic": (text_traffic, lambda: kb([[("🔃 Обновить", "m:traffic"), ("⬅️ Меню", "m:root")]])),
         "/backups": (lambda: text_backups()[0], lambda: text_backups()[1]),
         "/help": (
-            lambda: "Команды: /menu /status /proxy /users /links /logs /backups",
+            lambda: "Команды: /menu /status /proxy /users /links /logs /traffic /backups",
             main_menu_kb,
         ),
     }
@@ -860,6 +986,7 @@ def main() -> None:
                     {"command": "users", "description": "Пользователи"},
                     {"command": "links", "description": "Ссылки"},
                     {"command": "logs", "description": "Логи"},
+                    {"command": "traffic", "description": "Трафик"},
                     {"command": "backups", "description": "Бэкапы и автобэкап"},
                 ]
             },

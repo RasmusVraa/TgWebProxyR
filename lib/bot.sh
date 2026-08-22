@@ -225,7 +225,17 @@ TWPR_bot_install_files() {
     cp -a "${TWPR_BOT_DIR}/twpr_bot.py" "${dest_dir}/twpr_bot.py"
   fi
 
+  # Shop API рядом с ботом
+  if [[ -f "${TWPR_BOT_DIR}/twpr_api.py" ]]; then
+    cp -a "${TWPR_BOT_DIR}/twpr_api.py" "${dest_dir}/twpr_api.py"
+  elif [[ "${1:-}" == "--pull" ]]; then
+    curl -fsSL --retry 4 --retry-delay 1 \
+      "${TWPR_BOT_REPO_RAW}/bot/twpr_api.py" -o "${dest_dir}/twpr_api.py.new" 2>/dev/null \
+      && mv -f "${dest_dir}/twpr_api.py.new" "${dest_dir}/twpr_api.py" || true
+  fi
+
   chmod 755 "${dest_dir}/twpr_bot.py" 2>/dev/null || chmod 644 "${dest_dir}/twpr_bot.py"
+  [[ -f "${dest_dir}/twpr_api.py" ]] && chmod 755 "${dest_dir}/twpr_api.py" 2>/dev/null || true
   TWPR_bot_write_unit
   systemctl daemon-reload 2>/dev/null || true
 }

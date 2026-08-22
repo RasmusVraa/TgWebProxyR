@@ -53,17 +53,22 @@ tgwebproxyr secret list
 tgwebproxyr secret show
 tgwebproxyr secret link [name]
 tgwebproxyr secret rotate [name]
-tgwebproxyr secret add [name]       # native
-tgwebproxyr secret remove <name>    # native
+tgwebproxyr secret add [name]       # Docker и Native
+tgwebproxyr secret rename <old> <new>
+tgwebproxyr secret remove <name>
+tgwebproxyr secret apply            # перечитать реестр в движок
+tgwebproxyr metrics                 # трафик / сессии
+tgwebproxyr metrics --raw
 ```
 
-В Docker — один shared secret; несколько профилей — только Native.
+Реестр: `/etc/tgwebproxyr/profiles.json` (профиль `default` всегда первый). В Docker файл монтируется в relay.
 
-## Бот / бэкапы / Docker
+## Бот / API / бэкапы / Docker
 
 ```bash
 tgwebproxyr bot setup|update|status|start|stop|restart|logs|menu
-tgwebproxyr backup create|list|restore <name>
+tgwebproxyr api setup|token|status|start|stop|restart|logs
+tgwebproxyr backup create|list|restore <name>|auto …
 tgwebproxyr docker setup|up|down|restart|status|logs|pull|build
 tgwebproxyr update
 tgwebproxyr uninstall
@@ -78,6 +83,8 @@ tgwebproxyr help
 | `/opt/tgwebproxyr` | код менеджера |
 | `/etc/tgwebproxyr/settings.env` | состояние |
 | `/etc/tgwebproxyr/bot.env` | токен бота |
+| `/etc/tgwebproxyr/api.env` | Bearer token Shop API |
+| `/etc/tgwebproxyr/profiles.json` | пользователи / secrets |
 | `/srv/tproxy-site` | публичный сайт |
 | `/opt/tgwebproxyr/docker/.env` | Compose env |
 | `/opt/tgwebproxyr/backups/` | бэкапы |

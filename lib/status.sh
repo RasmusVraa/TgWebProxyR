@@ -173,13 +173,80 @@ TWPR_cmd_link() {
   TWPR_info "Hostname без https:// и без порта. Порт всегда 443."
 }
 
-TWPR_cmd_metrics() {
-  local admin="${TWPR_PORT_ADMIN:-8081}"
-  TWPR_load_state
-  if ! curl -fsS --max-time 3 "http://127.0.0.1:${admin}/metrics" 2>/dev/null; then
-    TWPR_err "Метрики недоступны (нужен работающий tproxy-server)"
-    return 1
+TWPR_human_bytes() {
+  local b="${1:-0}"
+  if command -v numfmt >/dev/null 2>&1; then
+    numfmt --to=iec-i --suffix=B "$b" 2>/dev/null && return 0
   fi
+  awk -v b="$b" 'BEGIN{
+    split("B KiB MiB GiB TiB",u," ");
+    for(i=1;b>=1024 && i<5;i++) b/=1024;
+    printf "%.1f %s\n", b, u[i]
+  }'
+}
+
+TWPR_cmd_metrics() {
+  local admin="${TWPR_PORT_ADMIN:-8081}" raw="${1:-}"
+  TWPR_load_state
+  local body
+  body="$(curl -fsS --max-time 3 "http://127.0.0.1:${admin}/metrics" 2>/dev/null)" || {
+    TWPR_err "Метрики недоступны (нужен работающий tproxy-server на :${admin})"
+    return 1
+  }
+  if [[ "$raw" == "--raw" || "$raw" == "raw" ]]; then
+    printf '%s\n' "$body"
+    return 0
+  fi
+
+  echo ""
+  echo -e "  ${C_BOLD}Трафик / сессии${C_RESET}"
+  echo -e "  ${C_GRAY}────────────────────────────────────────${C_RESET}"
+
+  local sessions="" bytes_in="" bytes_out=""
+  # распространённые имена из prometheus-экспорта tproxy-server
+  sessions="$(printf '%s\n' "$body" | awk '
+    /^[^#]/ && $1 ~ /(^|_)(sessions|active_sessions|tproxy_sessions)(_|$|{)/ {
+      print $NF; exit
+    }')"
+  bytes_in="$(printf '%s\n' "$body" | awk '
+    /^[^#]/ && tolower($1) ~ /(bytes_in|rx_bytes|received_bytes|ingress_bytes)/ {
+      print $NF; exit
+    }')"
+  bytes_out="$(printf '%s\n' "$body" | awk '
+    /^[^#]/ && tolower($1) ~ /(bytes_out|tx_bytes|sent_bytes|egress_bytes)/ {
+      print $NF; exit
+    }')"
+
+  # суммируем любые *bytes* если явных in/out нет
+  if [[ -z "$bytes_in$bytes_out" ]]; then
+    local sum
+    sum="$(printf '%s\n' "$body" | awk '
+      /^[^#]/ && tolower($1) ~ /bytes/ { s+=$NF }
+      END { if (s>0) print s }
+    ')"
+    [[ -n "$sum" ]] && bytes_in="$sum"
+  fi
+
+  if [[ -n "$sessions" ]]; then
+    TWPR_ok "активные сессии  ${sessions}"
+  else
+    TWPR_info "сессии            — (нет метки в /metrics)"
+  fi
+  if [[ -n "$bytes_in" ]]; then
+    TWPR_ok "вход / всего      $(TWPR_human_bytes "${bytes_in%.*}")"
+  fi
+  if [[ -n "$bytes_out" ]]; then
+    TWPR_ok "исходящий         $(TWPR_human_bytes "${bytes_out%.*}")"
+  fi
+
+  if [[ -f "${TWPR_STATE_DIR}/profiles.json" ]] && command -v jq >/dev/null 2>&1; then
+    TWPR_info "профилей          $(jq '.profiles|length' "${TWPR_STATE_DIR}/profiles.json" 2>/dev/null || echo '?')"
+  fi
+
+  echo ""
+  TWPR_info "Сырой экспорт: tgwebproxyr metrics --raw"
+  # короткий сниппет полезных строк
+  printf '%s\n' "$body" | awk '/^[^#]/ && (tolower($0) ~ /(session|byte|traffic|stream|conn)/) {print "  "$0}' | head -n 20
 }
 
 TWPR_cmd_logs() {

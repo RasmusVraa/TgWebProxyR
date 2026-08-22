@@ -130,8 +130,10 @@ TWPR_menu_secrets() {
     echo -e "  ${C_BOLD}1${C_RESET})  Показать ссылки"
     echo -e "  ${C_BOLD}2${C_RESET})  Показать secret"
     echo -e "  ${C_BOLD}3${C_RESET})  Сменить (rotate) secret"
-    echo -e "  ${C_BOLD}4${C_RESET})  Добавить профиль ${C_DIM}(native)${C_RESET}"
-    echo -e "  ${C_BOLD}5${C_RESET})  Удалить профиль ${C_DIM}(native)${C_RESET}"
+    echo -e "  ${C_BOLD}4${C_RESET})  Добавить пользователя"
+    echo -e "  ${C_BOLD}5${C_RESET})  Переименовать"
+    echo -e "  ${C_BOLD}6${C_RESET})  Удалить"
+    echo -e "  ${C_BOLD}7${C_RESET})  Применить к движку"
     echo -e "  ${C_BOLD}0${C_RESET})  Назад"
     echo ""
     local choice=""
@@ -141,7 +143,9 @@ TWPR_menu_secrets() {
       2) TWPR_cmd_secret_show; TWPR_pause ;;
       3) TWPR_cmd_secret_rotate; TWPR_pause ;;
       4) TWPR_cmd_secret_add; TWPR_pause ;;
-      5) TWPR_cmd_secret_remove; TWPR_pause ;;
+      5) TWPR_cmd_secret_rename; TWPR_pause ;;
+      6) TWPR_cmd_secret_remove; TWPR_pause ;;
+      7) TWPR_cmd_secret_apply; TWPR_pause ;;
       0|*) return 0 ;;
     esac
   done

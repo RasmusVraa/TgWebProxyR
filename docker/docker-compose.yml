@@ -44,9 +44,12 @@ services:
       TWPR_BACKEND: 127.0.0.1:2398
       TWPR_SITE_DIR: /srv/tproxy-site
       TWPR_CFG_DIR: /etc/tproxy-server
+      TWPR_HOST_PROFILES: /run/twpr/profiles.json
     volumes:
       - ../site:/srv/tproxy-site:ro
       - relay_cfg:/etc/tproxy-server
+      - /etc/tgwebproxyr/profiles.json:/run/twpr/profiles.json:ro
+      - ./entrypoint-relay.sh:/usr/local/bin/entrypoint-relay.sh:ro
     depends_on:
       - mtproxy
     healthcheck:

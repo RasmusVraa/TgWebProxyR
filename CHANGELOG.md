@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.6 — 2026-08-22
+
+- Фикс: новые пользователи в Docker снова работают (profiles.json монтируется в relay)
+- Имена пользователей: `secret add/rename`, бот спрашивает имя
+- Трафик: `tgwebproxyr metrics` и экран в боте из relay `/metrics`
+- Shop API: `tgwebproxyr api setup` — REST для магазинов (Bearer token)
+
 ## 1.6.5 — 2026-08-22
 
 - Автобэкап: hourly / daily / monthly / off (systemd timer)

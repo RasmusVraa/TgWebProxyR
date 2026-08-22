@@ -382,6 +382,8 @@ TWPR_docker_install_engine() {
   TWPR_prepare_site
   TWPR_docker_write_env
   TWPR_save_state
+  # файл нужен до compose up (bind-mount; иначе Docker создаст каталог)
+  TWPR_ensure_default_profile 2>/dev/null || true
 
   TWPR_info "Собираю и поднимаю контейнеры…"
   # сбросить старые контейнеры с другой схемой сети
@@ -397,7 +399,6 @@ TWPR_docker_install_engine() {
   # закрепим DEPLOY_MODE=docker в settings (на случай старых установок)
   TWPR_DEPLOY_MODE="docker"
   TWPR_save_state
-  TWPR_ensure_default_profile 2>/dev/null || true
   TWPR_cmd_status
   echo ""
   TWPR_cmd_link

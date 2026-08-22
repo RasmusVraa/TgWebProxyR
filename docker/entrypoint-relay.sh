@@ -1,12 +1,19 @@
 #!/bin/sh
 set -eu
 
+# на старых образах jq может не быть
+if ! command -v jq >/dev/null 2>&1; then
+  if command -v apk >/dev/null 2>&1; then
+    apk add --no-cache jq >/dev/null 2>&1 || true
+  fi
+fi
+
 HOSTNAME="${TWPR_HOSTNAME:?TWPR_HOSTNAME required}"
 SECRET="${TWPR_SECRET:?TWPR_SECRET required}"
-# tproxy-server принимает ТОЛЬКО numeric loopback — mtproxy в том же netns
 BACKEND="${TWPR_BACKEND:-127.0.0.1:2398}"
 SITE_DIR="${TWPR_SITE_DIR:-/srv/tproxy-site}"
 CFG_DIR="${TWPR_CFG_DIR:-/etc/tproxy-server}"
+HOST_PROFILES="${TWPR_HOST_PROFILES:-/run/twpr/profiles.json}"
 
 mkdir -p "$CFG_DIR"
 
@@ -60,7 +67,22 @@ case "$SECRET_HEX" in
   dd????????????????????????????????) SECRET_HEX="${SECRET_HEX#dd}" ;;
 esac
 
-cat >"${CFG_DIR}/profiles.json" <<EOF
+if [ -s "$HOST_PROFILES" ] && command -v jq >/dev/null 2>&1; then
+  echo ">> profiles from host registry"
+  jq --arg s "$SECRET_HEX" --arg b "$BACKEND" '
+    .profiles = ((.profiles // []) | map(select(.name != "default")))
+    | .profiles = [{name:"default", secret:$s, backend:$b, carrier_mode:"https"}] + (
+        [.profiles[] | {
+          name: .name,
+          secret: ((.secret // "") | ascii_downcase | sub("^dd";"")),
+          backend: $b,
+          carrier_mode: (.carrier_mode // "https")
+        } | select((.secret | length) == 32)]
+      )
+  ' "$HOST_PROFILES" >"${CFG_DIR}/profiles.json"
+  echo ">> profiles: $(jq '.profiles | length' "${CFG_DIR}/profiles.json")"
+else
+  cat >"${CFG_DIR}/profiles.json" <<EOF
 {
   "profiles": [
     {
@@ -72,8 +94,8 @@ cat >"${CFG_DIR}/profiles.json" <<EOF
   ]
 }
 EOF
+fi
 
-# upstream требует, чтобы profiles не были readable by group/other
 chmod 600 "${CFG_DIR}/profiles.json" "${CFG_DIR}/config.json" 2>/dev/null || true
 
 exec /usr/local/bin/tproxy-server \

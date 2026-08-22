@@ -106,7 +106,7 @@ tgwebproxyr
 | Что ставится | Caddy + relay + mtproxy в Compose | systemd-юниты upstream `tproxy-server` |
 | Образы | GHCR `ghcr.io/rasmusvraa/tgwebproxyr-*` | сборка/деплой на хосте |
 | Логи | `tgwebproxyr logs` / `docker compose logs` | `journalctl` |
-| Несколько профилей | один shared secret | `secret add` / profiles.json |
+| Несколько профилей | `secret add` / profiles.json / бот / Shop API | то же |
 | Когда выбирать | быстрый старт, чистый VPS | полный контроль, без Docker |
 
 Сменить носитель на уже установленном сервере — переустановка через меню
@@ -155,9 +155,11 @@ tgwebproxyr link
 tgwebproxyr logs
 tgwebproxyr doctor
 
-tgwebproxyr secret list|show|link|rotate|add|remove
+tgwebproxyr secret list|show|link|rotate|add|rename|remove|apply
+tgwebproxyr metrics
+tgwebproxyr api setup|token|status
 tgwebproxyr bot setup|update|menu
-tgwebproxyr backup create|list|restore
+tgwebproxyr backup create|list|restore|auto
 tgwebproxyr docker setup|up|down|pull|logs
 tgwebproxyr update
 tgwebproxyr uninstall

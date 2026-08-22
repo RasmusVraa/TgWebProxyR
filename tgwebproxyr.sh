@@ -31,6 +31,8 @@ source "${TWPR_ROOT}/lib/docker.sh"
 # shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/service.sh"
 # shellcheck disable=SC1091
+source "${TWPR_ROOT}/lib/api.sh"
+# shellcheck disable=SC1091
 source "${TWPR_ROOT}/lib/menu.sh"
 
 TWPR_usage() {
@@ -55,14 +57,18 @@ ${C_BOLD}TgWebProxyR${C_RESET} v${TWPR_VERSION}
   tgwebproxyr logs [unit|svc] [lines]
   tgwebproxyr doctor
 
-  ${C_BOLD}Secrets${C_RESET}
+  ${C_BOLD}Secrets / пользователи${C_RESET}
   tgwebproxyr secret list|show|link [name]
   tgwebproxyr secret rotate [name]
   tgwebproxyr secret add [name]
+  tgwebproxyr secret rename <old> <new>
   tgwebproxyr secret remove <name>
+  tgwebproxyr secret apply
+  tgwebproxyr metrics             трафик (relay /metrics)
 
   ${C_BOLD}Прочее${C_RESET}
   tgwebproxyr bot …           setup|update|menu|…
+  tgwebproxyr api …           setup|token|status  (Shop API)
   tgwebproxyr backup …        create|list|restore|auto
   tgwebproxyr docker …        setup|up|down|logs|pull
   tgwebproxyr update
@@ -97,12 +103,16 @@ main() {
         link) shift || true; TWPR_cmd_secret_link "${1:-}" ;;
         rotate) shift || true; TWPR_cmd_secret_rotate "${1:-}" ;;
         add) shift || true; TWPR_cmd_secret_add "${1:-}" ;;
+        rename|mv) shift || true; TWPR_cmd_secret_rename "${1:-}" "${2:-}" ;;
         remove|rm|del) shift || true; TWPR_cmd_secret_remove "${1:-}" ;;
+        apply|sync) TWPR_cmd_secret_apply ;;
         ""|menu) TWPR_menu_secrets ;;
-        *) TWPR_err "secret: list|show|link|rotate|add|remove"; exit 2 ;;
+        *) TWPR_err "secret: list|show|link|rotate|add|rename|remove|apply"; exit 2 ;;
       esac
       ;;
+    metrics|traffic) TWPR_cmd_metrics "$@" ;;
     bot) TWPR_cmd_bot "$@" ;;
+    api) TWPR_cmd_api "$@" ;;
     backup|backups) TWPR_cmd_backup "$@" ;;
     docker) TWPR_cmd_docker "$@" ;;
     uninstall|remove) TWPR_cmd_uninstall "$@" ;;

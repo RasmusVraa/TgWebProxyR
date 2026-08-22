@@ -2,9 +2,9 @@
 FROM alpine:3.20
 ARG TWPR_VERSION=1.5.0
 ARG USE_LOCAL_BIN=0
-RUN apk add --no-cache ca-certificates curl \
+RUN apk add --no-cache ca-certificates curl jq \
   && adduser -D -H -s /sbin/nologin tproxy \
-  && mkdir -p /etc/tproxy-server /srv/tproxy-site /tmp/bin \
+  && mkdir -p /etc/tproxy-server /srv/tproxy-site /tmp/bin /run/twpr \
   && chown -R tproxy:tproxy /etc/tproxy-server
 COPY docker/bin/ /tmp/bin/
 RUN set -eu; \
